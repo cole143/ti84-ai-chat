@@ -16,7 +16,7 @@
 #include <tice.h>
 
 /* ── Config ── */
-#define MAX_INPUT   256
+#define MAX_INPUT   512
 #define MAX_RESP    512
 #define SRL_BUF_SZ  4096
 
