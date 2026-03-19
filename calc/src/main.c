@@ -55,8 +55,8 @@ static char resp_buf[MAX_RESP];
 static const char alpha_map_g3[] = {
     /* kb_0=bit0 */ ' ',
     /* kb_1=bit1 */ 'Y',
-    /* kb_4=bit2 */ 'U',
-    /* kb_7=bit3 */ 'R',
+    /* kb_4=bit2 */ 'T',
+    /* kb_7=bit3 */ 'O',
     /* kb_Comma=bit4 */ 'J',
     /* kb_Sin=bit5 */ 'E',
     /* kb_Apps=bit6 */ 'B',
@@ -66,8 +66,8 @@ static const char alpha_map_g3[] = {
 static const char alpha_map_g4[] = {
     /* kb_DecPnt=bit0 */ ':',
     /* kb_2=bit1 */ 'Z',
-    /* kb_5=bit2 */ 'V',
-    /* kb_8=bit3 */ 'S',
+    /* kb_5=bit2 */ 'U',
+    /* kb_8=bit3 */ 'P',
     /* kb_LParen=bit4 */ 'K',
     /* kb_Cos=bit5 */ 'F',
     /* kb_Prgm=bit6 */ 'C',
@@ -77,20 +77,20 @@ static const char alpha_map_g4[] = {
 static const char alpha_map_g5[] = {
     /* kb_Chs=bit0 */ '?',
     /* kb_3=bit1 */ 0,      /* theta - skip */
-    /* kb_6=bit2 */ 'W',
-    /* kb_9=bit3 */ 'T',
+    /* kb_6=bit2 */ 'V',
+    /* kb_9=bit3 */ 'Q',
     /* kb_RParen=bit4 */ 'L',
     /* kb_Tan=bit5 */ 'G',
-    /* kb_Vars=bit6 */ 'D',
+    /* kb_Vars=bit6 */ 0,
     /* bit7 */ 0
 };
 
 static const char alpha_map_g6[] = {
     /* kb_Enter=bit0 */ 0,
     /* kb_Add=bit1 */ '"',
-    /* kb_Sub=bit2 */ 'X',
-    /* kb_Mul=bit3 */ 'P',
-    /* kb_Div=bit4 */ 'I',
+    /* kb_Sub=bit2 */ 'W',
+    /* kb_Mul=bit3 */ 'R',
+    /* kb_Div=bit4 */ 'M',
     /* kb_Power=bit5 */ 'H',
     /* kb_Clear=bit6 */ 0,
     /* bit7 */ 0
@@ -98,11 +98,11 @@ static const char alpha_map_g6[] = {
 
 static const char alpha_map_g2[] = {
     /* bit0 */ 0,
-    /* kb_Sto=bit1 */ 0,
-    /* kb_Ln=bit2 */ 'O',
+    /* kb_Sto=bit1 */ 'X',
+    /* kb_Ln=bit2 */ 'S',
     /* kb_Log=bit3 */ 'N',
-    /* kb_Square=bit4 */ 'M',
-    /* kb_Recip=bit5 */ 'A',
+    /* kb_Square=bit4 */ 'I',
+    /* kb_Recip=bit5 */ 'D',
     /* kb_Math=bit6 */ 'A',
     /* kb_Alpha=bit7 */ 0
 };
