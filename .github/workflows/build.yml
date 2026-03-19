@@ -1,0 +1,29 @@
+name: Build AICHAT.8xp
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CE Toolchain
+        run: |
+          wget -q https://github.com/CE-Programming/toolchain/releases/download/v14.2/CEdev-Linux.tar.gz
+          tar xzf CEdev-Linux.tar.gz -C $HOME
+          echo "$HOME/CEdev/bin" >> $GITHUB_PATH
+
+      - name: Build
+        run: |
+          cd calc
+          make
+
+      - name: Upload AICHAT.8xp
+        uses: actions/upload-artifact@v4
+        with:
+          name: AICHAT
+          path: calc/bin/AICHAT.8xp
