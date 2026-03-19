@@ -9,6 +9,7 @@ Usage: python bridge.py [COM_PORT]
 import sys
 import os
 import re
+import time
 import serial
 import anthropic
 from dotenv import load_dotenv
@@ -248,9 +249,16 @@ def main():
     print("Waiting for calculator connection...")
     print("Press Ctrl+C to quit.\n")
 
-    try:
-        with serial.Serial(PORT, BAUD, timeout=TIMEOUT) as ser:
-            print("Serial port open. Waiting for queries...\n")
+    while True:
+        try:
+            ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT)
+            print(f"Connected on {PORT}. Waiting for queries...\n")
+        except serial.SerialException:
+            print(f"Port {PORT} not available. Retrying in 2s...")
+            time.sleep(2)
+            continue
+
+        try:
             while True:
                 line = ser.readline().decode("ascii", errors="replace").strip()
                 if not line:
@@ -262,12 +270,20 @@ def main():
                 response = ask_claude(client, expanded)
                 print(f"[RESPONSE] {response}\n")
                 ser.write((response + "\n").encode("ascii"))
-    except KeyboardInterrupt:
-        print("\nBridge stopped.")
-    except serial.SerialException as e:
-        print(f"Serial error: {e}")
-        print("Make sure TI Connect CE is closed and the calc is running prgmAICHAT.")
-        sys.exit(1)
+        except serial.SerialException:
+            print("USB disconnected. Reconnecting in 2s...")
+            try:
+                ser.close()
+            except Exception:
+                pass
+            time.sleep(2)
+        except KeyboardInterrupt:
+            print("\nBridge stopped.")
+            try:
+                ser.close()
+            except Exception:
+                pass
+            sys.exit(0)
 
 if __name__ == "__main__":
     main()
