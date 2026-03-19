@@ -72,6 +72,72 @@ static const char wordbank[WORDBANK_SIZE][MAX_WORD_LEN] = {
     "POSITIVE","ZERO","SMALL","LARGE","TOTAL","MEAN"
 };
 
+/* ── Phrase bank for phrase mode ── */
+#define MAX_PHRASE_LEN   40
+#define NUM_CATEGORIES    4
+#define MAX_PHRASES_PER_CAT 8
+
+static const char *cat_names[NUM_CATEGORIES] = {
+    "STARTERS", "QUALIFIERS", "RATIOS", "FINANCE"
+};
+
+static const char phrases[NUM_CATEGORIES][MAX_PHRASES_PER_CAT][MAX_PHRASE_LEN] = {
+    /* STARTERS */
+    {
+        "WHICH OF THE FOLLOWING",
+        "A COMPANY HAS",
+        "A COMPANY",
+        "AN ANALYST",
+        "SHOULD A COMPANY",
+        "WHAT HAPPENS TO THE",
+        "HOW MUCH",
+        ""
+    },
+    /* QUALIFIERS */
+    {
+        "MOST LIKELY",
+        "LEAST LIKELY",
+        "MOST APPROPRIATE",
+        "CLOSEST TO",
+        "BEST DESCRIBES",
+        "SHOULD BE CONSIDERED",
+        "WITH RESPECT TO",
+        "IN ORDER TO"
+    },
+    /* RATIOS */
+    {
+        "CURRENT RATIO",
+        "QUICK RATIO",
+        "CASH CONVERSION CYCLE",
+        "NET PROFIT MARGIN",
+        "CURRENT ASSETS",
+        "CURRENT LIABILITIES",
+        "ACCOUNTS PAYABLE",
+        ""
+    },
+    /* FINANCE */
+    {
+        "WEIGHTED AVERAGE COST OF CAPITAL",
+        "COST OF CAPITAL",
+        "NET PRESENT VALUE",
+        "DISCOUNTED CASH FLOW",
+        "CAPITAL INVESTMENTS",
+        "CAPITAL BUDGETING",
+        "CORPORATE GOVERNANCE",
+        "FINANCIAL REPORTING QUALITY"
+    }
+};
+
+/* Count non-empty phrases in a category */
+static int cat_phrase_count(int cat) {
+    int count = 0;
+    for (int i = 0; i < MAX_PHRASES_PER_CAT; i++) {
+        if (phrases[cat][i][0] != '\0') count++;
+        else break;
+    }
+    return count;
+}
+
 /* ── Globals (declared early for autocomplete) ── */
 static srl_device_t srl;
 static bool has_device = false;
