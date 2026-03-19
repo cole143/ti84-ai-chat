@@ -355,7 +355,7 @@ static bool read_line(char *buf, int max_len) {
         kb_Scan();
         if (kb_IsDown(kb_KeyClear)) return false;
         usb_HandleEvents();
-        if (!has_device) continue;
+        if (!has_device) return false;
         char tmp[64];
         int n = srl_Read(&srl, tmp, sizeof tmp);
         if (n <= 0) continue;
@@ -532,6 +532,24 @@ int main(void) {
 
     bool running = true;
     while (running) {
+        /* If USB disconnected, wait for reconnect */
+        if (!has_device) {
+            gfx_FillScreen(COLOR_BG);
+            text_y = 0;
+            print_top_line("USB disconnected.", 0xE0);
+            print_top_line("Reconnect cable and wait...", COLOR_WAIT);
+            while (!has_device) {
+                kb_Scan();
+                if (kb_IsDown(kb_KeyClear)) { running = false; break; }
+                usb_HandleEvents();
+            }
+            if (!running) continue;
+            gfx_FillScreen(COLOR_BG);
+            text_y = 0;
+            print_top_line("Reconnected!", COLOR_PROMPT);
+            delay(500);
+        }
+
         input_len = 0;
         input_buf[0] = '\0';
         num_suggestions = 0;
@@ -548,6 +566,7 @@ int main(void) {
             result = handle_keyboard_input();
             if (result == -1) { running = false; break; }
             usb_HandleEvents();
+            if (!has_device) break;  /* drop to reconnect screen */
             update_suggestions();
             draw_input_line();
             draw_suggestions();
@@ -555,7 +574,7 @@ int main(void) {
             delay(80);
         } while (result == 0);
 
-        if (!running || input_len == 0) continue;
+        if (!running || !has_device || input_len == 0) continue;
 
         gfx_FillScreen(COLOR_BG);
         text_y = 0;
@@ -565,13 +584,18 @@ int main(void) {
         print_top_line("Waiting for AI response...", COLOR_WAIT);
 
         if (!send_query(input_buf)) {
+            if (!has_device) continue;  /* drop to reconnect screen */
             print_top_line("Send failed!", 0xE0);
             while (!kb_AnyKey()) { kb_Scan(); }
             while (kb_AnyKey()) { kb_Scan(); }
             continue;
         }
 
-        if (!read_line(resp_buf, MAX_RESP)) { running = false; continue; }
+        if (!read_line(resp_buf, MAX_RESP)) {
+            if (!has_device) continue;  /* drop to reconnect screen */
+            running = false;
+            continue;
+        }
 
         gfx_FillScreen(COLOR_BG);
         text_y = 0;
