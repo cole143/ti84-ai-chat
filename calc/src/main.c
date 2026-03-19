@@ -1,11 +1,7 @@
 /*
- * AICHAT — TI-84 Plus CE AI Chat Bridge
- *
- * Collects keyboard input, sends queries over USB CDC serial
- * to a PC bridge script, and displays AI responses on screen.
- *
+ * AICHAT v2.0 — TI-84 Plus CE AI Chat Bridge
+ * On-screen QWERTY keyboard with arrow key navigation.
  * Libraries: srldrvce, graphx, keypadc
- * Build: CE Toolchain v11+
  */
 
 #include <stdbool.h>
@@ -24,17 +20,57 @@
 #define MAX_RESP    512
 #define SRL_BUF_SZ  4096
 
-#define FONT_H      8
-#define CHAR_W      8
 #define SCREEN_W    320
 #define SCREEN_H    240
-#define CHARS_PER_LINE (SCREEN_W / CHAR_W)  /* 40 */
-#define MAX_LINES   (SCREEN_H / FONT_H)    /* 30 */
+#define FONT_H      8
+#define CHAR_W      8
+#define CHARS_PER_LINE (SCREEN_W / CHAR_W)
 
-#define COLOR_BG    0x00   /* black */
-#define COLOR_FG    0xFF   /* white */
-#define COLOR_PROMPT 0xE7  /* yellow */
-#define COLOR_WAIT  0x03   /* green */
+/* Colors */
+#define COLOR_BG      0x00   /* black */
+#define COLOR_FG      0xFF   /* white */
+#define COLOR_PROMPT  0xE7   /* yellow */
+#define COLOR_WAIT    0x03   /* green */
+#define COLOR_KEY_BG  0x18   /* dark gray for key cells */
+#define COLOR_KEY_HL  0xE7   /* yellow highlight */
+#define COLOR_KEY_FG  0xFF   /* white text on keys */
+#define COLOR_KEY_HFG 0x00   /* black text on highlight */
+#define COLOR_DIVIDER 0x18   /* gray divider line */
+
+/* ── Keyboard layout ── */
+#define KB_TOP_Y      136    /* keyboard starts here */
+#define KB_KEY_W      28     /* key width in pixels */
+#define KB_KEY_H      22     /* key height in pixels */
+#define KB_PAD        2      /* padding between keys */
+#define KB_ROWS       4      /* 3 letter rows + 1 control row */
+
+/* Row lengths */
+#define ROW0_LEN  10   /* QWERTYUIOP */
+#define ROW1_LEN  9    /* ASDFGHJKL */
+#define ROW2_LEN  7    /* ZXCVBNM */
+#define ROW3_LEN  3    /* SPC DEL SEND */
+
+static const char row0_chars[] = "QWERTYUIOP";
+static const char row1_chars[] = "ASDFGHJKL";
+static const char row2_chars[] = "ZXCVBNM";
+static const char *row3_labels[] = {"SPACE", "DEL", "SEND"};
+
+static const int row_lens[] = {ROW0_LEN, ROW1_LEN, ROW2_LEN, ROW3_LEN};
+
+/* Starting X offset for each row (to center shorter rows) */
+static int row_x_offset(int row) {
+    switch (row) {
+        case 0: return (SCREEN_W - ROW0_LEN * (KB_KEY_W + KB_PAD)) / 2;
+        case 1: return (SCREEN_W - ROW1_LEN * (KB_KEY_W + KB_PAD)) / 2;
+        case 2: return (SCREEN_W - ROW2_LEN * (KB_KEY_W + KB_PAD)) / 2;
+        case 3: return 4;  /* controls row left-aligned with padding */
+        default: return 0;
+    }
+}
+
+/* Cursor position on the keyboard */
+static int kb_row = 0;
+static int kb_col = 0;
 
 /* ── Globals ── */
 static srl_device_t srl;
@@ -43,148 +79,135 @@ static uint8_t srl_buf[SRL_BUF_SZ];
 
 static char input_buf[MAX_INPUT];
 static int input_len = 0;
-
 static char resp_buf[MAX_RESP];
 
-/* ── Key-to-char mapping ── */
-/* Alpha mode: maps calculator keys to letters.
- * The TI-84 keyboard layout maps keys to letters A-Z when ALPHA is active.
- * We handle this manually for the graphx environment. */
+/* ── Draw helpers ── */
+static int text_y = 0;
 
-/* Letters mapped to number/function keys in ALPHA mode */
-static const char alpha_map_g3[] = {
-    /* kb_0=bit0 */ ' ',
-    /* kb_1=bit1 */ 'Y',
-    /* kb_4=bit2 */ 'T',
-    /* kb_7=bit3 */ 'O',
-    /* kb_Comma=bit4 */ 'J',
-    /* kb_Sin=bit5 */ 'E',
-    /* kb_Apps=bit6 */ 'B',
-    /* kb_GraphVar=bit7 */ 0
-};
-
-static const char alpha_map_g4[] = {
-    /* kb_DecPnt=bit0 */ ':',
-    /* kb_2=bit1 */ 'Z',
-    /* kb_5=bit2 */ 'U',
-    /* kb_8=bit3 */ 'P',
-    /* kb_LParen=bit4 */ 'K',
-    /* kb_Cos=bit5 */ 'F',
-    /* kb_Prgm=bit6 */ 'C',
-    /* kb_Stat=bit7 */ 0
-};
-
-static const char alpha_map_g5[] = {
-    /* kb_Chs=bit0 */ '?',
-    /* kb_3=bit1 */ 0,      /* theta - skip */
-    /* kb_6=bit2 */ 'V',
-    /* kb_9=bit3 */ 'Q',
-    /* kb_RParen=bit4 */ 'L',
-    /* kb_Tan=bit5 */ 'G',
-    /* kb_Vars=bit6 */ 0,
-    /* bit7 */ 0
-};
-
-static const char alpha_map_g6[] = {
-    /* kb_Enter=bit0 */ 0,
-    /* kb_Add=bit1 */ '"',
-    /* kb_Sub=bit2 */ 'W',
-    /* kb_Mul=bit3 */ 'R',
-    /* kb_Div=bit4 */ 'M',
-    /* kb_Power=bit5 */ 'H',
-    /* kb_Clear=bit6 */ 0,
-    /* bit7 */ 0
-};
-
-static const char alpha_map_g2[] = {
-    /* bit0 */ 0,
-    /* kb_Sto=bit1 */ 'X',
-    /* kb_Ln=bit2 */ 'S',
-    /* kb_Log=bit3 */ 'N',
-    /* kb_Square=bit4 */ 'I',
-    /* kb_Recip=bit5 */ 'D',
-    /* kb_Math=bit6 */ 'A',
-    /* kb_Alpha=bit7 */ 0
-};
-
-/* Number keys (no alpha) */
-static const char num_map_g3[] = {
-    '0', '1', '4', '7', ',', 0, 0, 0
-};
-static const char num_map_g4[] = {
-    '.', '2', '5', '8', '(', 0, 0, 0
-};
-static const char num_map_g5[] = {
-    '-', '3', '6', '9', ')', 0, 0, 0
-};
-static const char num_map_g6[] = {
-    0, '+', '-', '*', '/', '^', 0, 0
-};
-
-/* ── Screen helpers ── */
-static int cursor_y = 0;
-
-static void screen_clear(void) {
-    gfx_FillScreen(COLOR_BG);
-    cursor_y = 0;
+static void clear_top_area(void) {
+    gfx_SetColor(COLOR_BG);
+    gfx_FillRectangle_NoClip(0, 0, SCREEN_W, KB_TOP_Y - 2);
+    text_y = 0;
 }
 
-static void print_line(const char *text, uint8_t color) {
+static void print_top_line(const char *text, uint8_t color) {
+    if (text_y >= KB_TOP_Y - FONT_H) return;
     gfx_SetTextFGColor(color);
-    gfx_PrintStringXY(text, 0, cursor_y);
-    cursor_y += FONT_H;
-    if (cursor_y >= SCREEN_H) {
-        cursor_y = SCREEN_H - FONT_H;
-    }
+    gfx_PrintStringXY(text, 0, text_y);
+    text_y += FONT_H;
 }
 
-static void print_wrapped(const char *text, uint8_t color) {
+static void print_top_wrapped(const char *text, uint8_t color, int max_y) {
     char line[CHARS_PER_LINE + 1];
     int len = (int)strlen(text);
     int pos = 0;
-
     gfx_SetTextFGColor(color);
-
-    while (pos < len) {
+    while (pos < len && text_y < max_y) {
         int chunk = len - pos;
         if (chunk > CHARS_PER_LINE) chunk = CHARS_PER_LINE;
         memcpy(line, text + pos, chunk);
         line[chunk] = '\0';
-        gfx_PrintStringXY(line, 0, cursor_y);
-        cursor_y += FONT_H;
+        gfx_PrintStringXY(line, 0, text_y);
+        text_y += FONT_H;
         pos += chunk;
-
-        if (cursor_y >= SCREEN_H) {
-            /* Screen full — wait for keypress then clear */
-            gfx_SetTextFGColor(COLOR_WAIT);
-            gfx_PrintStringXY("[MORE - press any key]", 0, SCREEN_H - FONT_H);
-            while (!kb_AnyKey()) { kb_Scan(); }
-            while (kb_AnyKey()) { kb_Scan(); }  /* debounce */
-            screen_clear();
-        }
     }
 }
 
-static void draw_input_prompt(void) {
+/* Draw the input line at the top of screen */
+static void draw_input_line(void) {
     char display[CHARS_PER_LINE + 1];
     int show_len;
 
-    /* Clear input area (bottom 2 lines) */
+    /* Clear input area (first 2 lines) */
     gfx_SetColor(COLOR_BG);
-    gfx_FillRectangle_NoClip(0, SCREEN_H - FONT_H * 2, SCREEN_W, FONT_H * 2);
+    gfx_FillRectangle_NoClip(0, 0, SCREEN_W, FONT_H * 2);
 
-    /* Show "> " prefix + last N chars of input */
+    /* "> " prefix */
     gfx_SetTextFGColor(COLOR_PROMPT);
-    gfx_PrintStringXY("> ", 0, SCREEN_H - FONT_H);
+    gfx_PrintStringXY("> ", 0, 0);
 
+    /* Show last N chars of input + cursor */
     show_len = input_len;
     if (show_len > CHARS_PER_LINE - 3) show_len = CHARS_PER_LINE - 3;
     memcpy(display, input_buf + (input_len - show_len), show_len);
-    display[show_len] = '_';  /* cursor */
+    display[show_len] = '_';
     display[show_len + 1] = '\0';
 
     gfx_SetTextFGColor(COLOR_FG);
-    gfx_PrintStringXY(display, CHAR_W * 2, SCREEN_H - FONT_H);
+    gfx_PrintStringXY(display, CHAR_W * 2, 0);
+}
+
+/* ── On-screen keyboard drawing ── */
+static void draw_keyboard(void) {
+    char ch_str[2] = {0, 0};
+
+    /* Draw divider line */
+    gfx_SetColor(COLOR_DIVIDER);
+    gfx_HorizLine_NoClip(0, KB_TOP_Y - 2, SCREEN_W);
+
+    /* Draw letter rows 0-2 */
+    for (int r = 0; r < 3; r++) {
+        int x_off = row_x_offset(r);
+        int y = KB_TOP_Y + r * (KB_KEY_H + KB_PAD);
+        int len = row_lens[r];
+        const char *chars;
+
+        switch (r) {
+            case 0: chars = row0_chars; break;
+            case 1: chars = row1_chars; break;
+            default: chars = row2_chars; break;
+        }
+
+        for (int c = 0; c < len; c++) {
+            int x = x_off + c * (KB_KEY_W + KB_PAD);
+            bool highlighted = (r == kb_row && c == kb_col);
+
+            /* Key background */
+            gfx_SetColor(highlighted ? COLOR_KEY_HL : COLOR_KEY_BG);
+            gfx_FillRectangle_NoClip(x, y, KB_KEY_W, KB_KEY_H);
+
+            /* Letter centered in key */
+            ch_str[0] = chars[c];
+            int tx = x + (KB_KEY_W - CHAR_W) / 2;
+            int ty = y + (KB_KEY_H - FONT_H) / 2;
+            gfx_SetTextFGColor(highlighted ? COLOR_KEY_HFG : COLOR_KEY_FG);
+            gfx_PrintStringXY(ch_str, tx, ty);
+        }
+    }
+
+    /* Draw control row (row 3) */
+    {
+        int y = KB_TOP_Y + 3 * (KB_KEY_H + KB_PAD);
+        /* SPACE key: wider */
+        int space_w = 160;
+        int del_w = 60;
+        int send_w = 70;
+        int gap = 8;
+        int x = 4;
+
+        /* SPACE */
+        bool hl = (kb_row == 3 && kb_col == 0);
+        gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
+        gfx_FillRectangle_NoClip(x, y, space_w, KB_KEY_H);
+        gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
+        gfx_PrintStringXY("SPACE", x + (space_w - 5 * CHAR_W) / 2, y + (KB_KEY_H - FONT_H) / 2);
+        x += space_w + gap;
+
+        /* DEL */
+        hl = (kb_row == 3 && kb_col == 1);
+        gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
+        gfx_FillRectangle_NoClip(x, y, del_w, KB_KEY_H);
+        gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
+        gfx_PrintStringXY("DEL", x + (del_w - 3 * CHAR_W) / 2, y + (KB_KEY_H - FONT_H) / 2);
+        x += del_w + gap;
+
+        /* SEND */
+        hl = (kb_row == 3 && kb_col == 2);
+        gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
+        gfx_FillRectangle_NoClip(x, y, send_w, KB_KEY_H);
+        gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
+        gfx_PrintStringXY("SEND", x + (send_w - 4 * CHAR_W) / 2, y + (KB_KEY_H - FONT_H) / 2);
+    }
 }
 
 /* ── USB event handler ── */
@@ -202,9 +225,7 @@ static usb_error_t handle_usb_event(usb_event_t event, void *event_data,
 
     if (event == USB_HOST_CONFIGURE_EVENT ||
         (event == USB_DEVICE_ENABLED_EVENT && !(usb_GetRole() & USB_ROLE_DEVICE))) {
-
         if (has_device) return USB_SUCCESS;
-
         usb_device_t device;
         if (event == USB_HOST_CONFIGURE_EVENT) {
             device = usb_FindDevice(NULL, NULL, USB_SKIP_HUBS);
@@ -212,7 +233,6 @@ static usb_error_t handle_usb_event(usb_event_t event, void *event_data,
         } else {
             device = event_data;
         }
-
         srl_error_t error = srl_Open(&srl, device, srl_buf, sizeof srl_buf,
                                       SRL_INTERFACE_ANY, 9600);
         if (error) return USB_SUCCESS;
@@ -230,23 +250,18 @@ static usb_error_t handle_usb_event(usb_event_t event, void *event_data,
     return USB_SUCCESS;
 }
 
-/* ── Read a full line from serial (blocking with USB polling) ── */
+/* ── Serial I/O ── */
 static bool read_line(char *buf, int max_len) {
     int pos = 0;
     memset(buf, 0, max_len);
-
     while (pos < max_len - 1) {
         kb_Scan();
         if (kb_IsDown(kb_KeyClear)) return false;
-
         usb_HandleEvents();
-
         if (!has_device) continue;
-
         char tmp[64];
         int n = srl_Read(&srl, tmp, sizeof tmp);
         if (n <= 0) continue;
-
         for (int i = 0; i < n && pos < max_len - 1; i++) {
             if (tmp[i] == '\n') {
                 buf[pos] = '\0';
@@ -261,21 +276,16 @@ static bool read_line(char *buf, int max_len) {
     return true;
 }
 
-/* ── Send string over serial ── */
 static bool send_query(const char *text) {
     int len = (int)strlen(text);
     int sent = 0;
-
     while (sent < len) {
         usb_HandleEvents();
         if (!has_device) return false;
-
         int n = srl_Write(&srl, text + sent, len - sent);
         if (n < 0) return false;
         sent += n;
     }
-
-    /* Send newline terminator */
     const char nl = '\n';
     int tries = 0;
     while (tries < 1000) {
@@ -285,132 +295,166 @@ static bool send_query(const char *text) {
         if (n < 0) return false;
         tries++;
     }
-
     return true;
 }
 
-/* ── Keyboard input handler ── */
-static bool alpha_mode = false;
-static bool prev_keys[8][8] = {{false}};
+/* ── Keyboard input handling ── */
 
-static char get_alpha_char(int group, int bit) {
-    switch (group) {
-        case 2: return (bit < 8) ? alpha_map_g2[bit] : 0;
-        case 3: return (bit < 8) ? alpha_map_g3[bit] : 0;
-        case 4: return (bit < 8) ? alpha_map_g4[bit] : 0;
-        case 5: return (bit < 8) ? alpha_map_g5[bit] : 0;
-        case 6: return (bit < 8) ? alpha_map_g6[bit] : 0;
+/* Clamp column to valid range for current row */
+static void clamp_col(void) {
+    if (kb_col >= row_lens[kb_row])
+        kb_col = row_lens[kb_row] - 1;
+    if (kb_col < 0) kb_col = 0;
+}
+
+/* Get the character for the current keyboard cursor position.
+ * Returns 0 for special keys (DEL, SEND). */
+static char get_selected_char(void) {
+    switch (kb_row) {
+        case 0: return row0_chars[kb_col];
+        case 1: return row1_chars[kb_col];
+        case 2: return row2_chars[kb_col];
+        case 3:
+            if (kb_col == 0) return ' ';  /* SPACE */
+            return 0;  /* DEL or SEND */
         default: return 0;
     }
 }
 
-static char get_num_char(int group, int bit) {
-    switch (group) {
-        case 3: return (bit < 8) ? num_map_g3[bit] : 0;
-        case 4: return (bit < 8) ? num_map_g4[bit] : 0;
-        case 5: return (bit < 8) ? num_map_g5[bit] : 0;
-        case 6: return (bit < 8) ? num_map_g6[bit] : 0;
-        default: return 0;
-    }
-}
-
-/* Returns: 0 = still typing, 1 = enter pressed, -1 = clear pressed */
-static int handle_keypress(void) {
-    bool curr_keys[8][8] = {{false}};
+/* Returns: 0 = still typing, 1 = send, -1 = exit */
+static int handle_keyboard_input(void) {
+    static bool prev_up = false, prev_down = false;
+    static bool prev_left = false, prev_right = false;
+    static bool prev_enter = false, prev_clear = false;
+    static bool prev_del = false, prev_zero = false;
 
     kb_Scan();
 
-    /* Build current key state */
-    for (int g = 1; g <= 7; g++) {
-        for (int b = 0; b < 8; b++) {
-            curr_keys[g][b] = (kb_Data[g] & (1 << b)) != 0;
+    bool up    = kb_IsDown(kb_KeyUp);
+    bool down  = kb_IsDown(kb_KeyDown);
+    bool left  = kb_IsDown(kb_KeyLeft);
+    bool right = kb_IsDown(kb_KeyRight);
+    bool enter = kb_IsDown(kb_KeyEnter);
+    bool clear = kb_IsDown(kb_KeyClear);
+    bool del   = kb_IsDown(kb_KeyDel);
+    bool zero  = (kb_Data[3] & kb_0) != 0;
+
+    /* Edge detection — act on press, not hold */
+
+    /* Arrow navigation */
+    if (up && !prev_up) {
+        kb_row--;
+        if (kb_row < 0) kb_row = KB_ROWS - 1;
+        clamp_col();
+    }
+    if (down && !prev_down) {
+        kb_row++;
+        if (kb_row >= KB_ROWS) kb_row = 0;
+        clamp_col();
+    }
+    if (left && !prev_left) {
+        kb_col--;
+        if (kb_col < 0) {
+            /* Wrap to previous row's end */
+            kb_row--;
+            if (kb_row < 0) kb_row = KB_ROWS - 1;
+            kb_col = row_lens[kb_row] - 1;
+        }
+    }
+    if (right && !prev_right) {
+        kb_col++;
+        if (kb_col >= row_lens[kb_row]) {
+            /* Wrap to next row's start */
+            kb_row++;
+            if (kb_row >= KB_ROWS) kb_row = 0;
+            kb_col = 0;
         }
     }
 
-    /* Check for new key presses (edge detection) */
-    for (int g = 1; g <= 7; g++) {
-        for (int b = 0; b < 8; b++) {
-            if (curr_keys[g][b] && !prev_keys[g][b]) {
-                /* New keypress detected */
+    /* CLEAR = exit */
+    if (clear && !prev_clear) {
+        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
+        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
+        return -1;
+    }
 
-                /* ALPHA toggle */
-                if (g == 2 && b == 7) {
-                    alpha_mode = !alpha_mode;
-                    goto done;
-                }
+    /* Physical DEL key = backspace shortcut */
+    if (del && !prev_del) {
+        if (input_len > 0) {
+            input_len--;
+            input_buf[input_len] = '\0';
+        }
+    }
 
-                /* CLEAR = cancel */
-                if (g == 6 && b == 6) {
-                    memcpy(prev_keys, curr_keys, sizeof(prev_keys));
-                    return -1;
-                }
+    /* Physical 0 key = space shortcut */
+    if (zero && !prev_zero) {
+        if (input_len < MAX_INPUT - 1) {
+            input_buf[input_len++] = ' ';
+            input_buf[input_len] = '\0';
+        }
+    }
 
-                /* ENTER = submit */
-                if (g == 6 && b == 0) {
-                    memcpy(prev_keys, curr_keys, sizeof(prev_keys));
-                    return 1;
-                }
-
-                /* DEL = backspace */
-                if (g == 1 && b == 7) {
-                    if (input_len > 0) {
-                        input_len--;
-                        input_buf[input_len] = '\0';
-                    }
-                    goto done;
-                }
-
-                /* Character input */
+    /* ENTER = select key on on-screen keyboard */
+    if (enter && !prev_enter) {
+        if (kb_row == 3) {
+            if (kb_col == 0) {
+                /* SPACE */
                 if (input_len < MAX_INPUT - 1) {
-                    char c = 0;
-                    if (alpha_mode) {
-                        c = get_alpha_char(g, b);
-                    }
-                    if (c == 0) {
-                        c = get_num_char(g, b);
-                    }
-                    if (c != 0) {
-                        input_buf[input_len++] = c;
-                        input_buf[input_len] = '\0';
-                    }
+                    input_buf[input_len++] = ' ';
+                    input_buf[input_len] = '\0';
                 }
+            } else if (kb_col == 1) {
+                /* DEL */
+                if (input_len > 0) {
+                    input_len--;
+                    input_buf[input_len] = '\0';
+                }
+            } else if (kb_col == 2) {
+                /* SEND */
+                prev_up = up; prev_down = down; prev_left = left; prev_right = right;
+                prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
+                return 1;
+            }
+        } else {
+            /* Letter key */
+            char c = get_selected_char();
+            if (c != 0 && input_len < MAX_INPUT - 1) {
+                input_buf[input_len++] = c;
+                input_buf[input_len] = '\0';
             }
         }
     }
 
-done:
-    memcpy(prev_keys, curr_keys, sizeof(prev_keys));
+    prev_up = up; prev_down = down; prev_left = left; prev_right = right;
+    prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
     return 0;
 }
 
 /* ── Main ── */
 int main(void) {
-    /* Init graphics */
     gfx_Begin();
     gfx_SetMonospaceFont(CHAR_W);
     gfx_SetTextBGColor(COLOR_BG);
     gfx_SetTextTransparentColor(COLOR_BG);
+    gfx_FillScreen(COLOR_BG);
 
-    screen_clear();
-    print_line("AICHAT v1.0", COLOR_PROMPT);
-    print_line("Connect USB and start bridge.py", COLOR_FG);
-    print_line("ALPHA=toggle letters  DEL=backspace", COLOR_FG);
-    print_line("ENTER=send  CLEAR=exit", COLOR_FG);
-    print_line("", COLOR_FG);
+    text_y = 0;
+    print_top_line("AICHAT v2.0", COLOR_PROMPT);
+    print_top_line("Connect USB and start bridge.py", COLOR_FG);
+    print_top_line("Arrows=move ENTER=select CLEAR=exit", COLOR_FG);
 
     /* Init USB */
     const usb_standard_descriptors_t *desc = srl_GetCDCStandardDescriptors();
     usb_error_t usb_err = usb_Init(handle_usb_event, NULL, desc, USB_DEFAULT_INIT_FLAGS);
     if (usb_err) {
-        print_line("USB init failed!", 0xE0);
-        print_line("Press any key to exit.", COLOR_FG);
+        print_top_line("USB init failed!", 0xE0);
+        print_top_line("Press any key to exit.", COLOR_FG);
         while (!kb_AnyKey()) { kb_Scan(); }
         gfx_End();
         return 1;
     }
 
-    /* Wait for USB connection */
-    print_line("Waiting for USB connection...", COLOR_WAIT);
+    print_top_line("Waiting for USB connection...", COLOR_WAIT);
     while (!has_device) {
         kb_Scan();
         if (kb_IsDown(kb_KeyClear)) {
@@ -421,48 +465,48 @@ int main(void) {
         usb_HandleEvents();
     }
 
-    screen_clear();
-    print_line("Connected! Type your question.", COLOR_WAIT);
-    print_line("ALPHA=letters DEL=back ENTER=send", COLOR_FG);
-    cursor_y = FONT_H * 3;
-
     /* Main chat loop */
     bool running = true;
     while (running) {
         /* Reset input */
         input_len = 0;
         input_buf[0] = '\0';
-        alpha_mode = true;  /* start in alpha mode for text entry */
-        draw_input_prompt();
+        kb_row = 0;
+        kb_col = 0;
 
-        /* Collect input */
+        /* Draw typing UI */
+        gfx_FillScreen(COLOR_BG);
+        draw_input_line();
+        draw_keyboard();
+
+        /* Collect input via on-screen keyboard */
         int result;
         do {
-            result = handle_keypress();
+            result = handle_keyboard_input();
             if (result == -1) {
                 running = false;
                 break;
             }
             usb_HandleEvents();
-            draw_input_prompt();
-
-            /* Small delay for debounce */
-            delay(50);
+            draw_input_line();
+            draw_keyboard();
+            delay(80);
         } while (result == 0);
 
         if (!running || input_len == 0) continue;
 
-        /* Show waiting message */
-        screen_clear();
-        print_line("You:", COLOR_PROMPT);
-        print_wrapped(input_buf, COLOR_FG);
-        cursor_y += FONT_H;
-        print_line("Waiting for AI response...", COLOR_WAIT);
+        /* Show waiting screen */
+        gfx_FillScreen(COLOR_BG);
+        text_y = 0;
+        print_top_line("You:", COLOR_PROMPT);
+        print_top_wrapped(input_buf, COLOR_FG, KB_TOP_Y - 10);
+        text_y += FONT_H;
+        print_top_line("Waiting for AI response...", COLOR_WAIT);
 
         /* Send query */
         if (!send_query(input_buf)) {
-            print_line("Send failed! USB disconnected?", 0xE0);
-            print_line("Press any key...", COLOR_FG);
+            print_top_line("Send failed! USB disconnected?", 0xE0);
+            print_top_line("Press any key...", COLOR_FG);
             while (!kb_AnyKey()) { kb_Scan(); }
             while (kb_AnyKey()) { kb_Scan(); }
             continue;
@@ -474,24 +518,23 @@ int main(void) {
             continue;
         }
 
-        /* Display response */
-        screen_clear();
-        print_line("You:", COLOR_PROMPT);
-        print_wrapped(input_buf, COLOR_FG);
-        cursor_y += FONT_H;
-        print_line("AI:", COLOR_PROMPT);
-        print_wrapped(resp_buf, COLOR_FG);
-        cursor_y += FONT_H;
-        print_line("[Press any key for new query]", COLOR_WAIT);
+        /* Display response (full screen) */
+        gfx_FillScreen(COLOR_BG);
+        text_y = 0;
+        print_top_line("You:", COLOR_PROMPT);
+        print_top_wrapped(input_buf, COLOR_FG, SCREEN_H);
+        text_y += FONT_H;
+        print_top_line("AI:", COLOR_PROMPT);
+        print_top_wrapped(resp_buf, COLOR_FG, SCREEN_H - FONT_H);
+        gfx_SetTextFGColor(COLOR_WAIT);
+        gfx_PrintStringXY("[Any key -> new query]", 0, SCREEN_H - FONT_H);
 
         /* Wait for keypress */
         while (!kb_AnyKey()) {
             kb_Scan();
             usb_HandleEvents();
         }
-        while (kb_AnyKey()) { kb_Scan(); }  /* debounce */
-        screen_clear();
-        cursor_y = FONT_H * 2;
+        while (kb_AnyKey()) { kb_Scan(); }
     }
 
     usb_Cleanup();
