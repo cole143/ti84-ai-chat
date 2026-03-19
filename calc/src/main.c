@@ -72,6 +72,15 @@ static const char wordbank[WORDBANK_SIZE][MAX_WORD_LEN] = {
     "POSITIVE","ZERO","SMALL","LARGE","TOTAL","MEAN"
 };
 
+/* ── Globals (declared early for autocomplete) ── */
+static srl_device_t srl;
+static bool has_device = false;
+static uint8_t srl_buf[SRL_BUF_SZ];
+static char input_buf[MAX_INPUT];
+static int input_len = 0;
+static char resp_buf[MAX_RESP];
+static int text_y = 0;
+
 /* Autocomplete state */
 static char suggestions[MAX_SUGGESTIONS][MAX_WORD_LEN];
 static int num_suggestions = 0;
@@ -166,14 +175,7 @@ static int row_x_offset(int row) {
     }
 }
 
-/* ── Globals ── */
-static srl_device_t srl;
-static bool has_device = false;
-static uint8_t srl_buf[SRL_BUF_SZ];
-static char input_buf[MAX_INPUT];
-static int input_len = 0;
-static char resp_buf[MAX_RESP];
-static int text_y = 0;
+/* (globals declared above with autocomplete) */
 
 /* ── Draw helpers ── */
 static void print_top_line(const char *text, uint8_t color) {
