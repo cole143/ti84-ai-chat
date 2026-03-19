@@ -2,7 +2,7 @@ name: Build AICHAT.8xp
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   workflow_dispatch:
 
 jobs:
