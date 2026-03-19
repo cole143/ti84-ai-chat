@@ -145,32 +145,36 @@ static void accept_suggestion(int idx) {
 }
 
 /* ── Keyboard layout ── */
-#define KB_TOP_Y      136
+#define KB_TOP_Y      112
 #define KB_KEY_W      28
 #define KB_KEY_H      22
 #define KB_PAD        2
-#define KB_ROWS       4
-#define SUGGEST_Y     (KB_TOP_Y - 14)  /* suggestion bar just above keyboard */
+#define KB_ROWS       5
+#define SUGGEST_Y     (KB_TOP_Y - 14)
 
+#define NUM_KEY_W     24    /* narrower keys for 12-char number row */
+#define ROW_NUM_LEN   12
 #define ROW0_LEN  10
 #define ROW1_LEN  9
 #define ROW2_LEN  7
 #define ROW3_LEN  3
 
+static const char row_num_chars[] = "1234567890%.";
 static const char row0_chars[] = "QWERTYUIOP";
 static const char row1_chars[] = "ASDFGHJKL";
 static const char row2_chars[] = "ZXCVBNM";
-static const int row_lens[] = {ROW0_LEN, ROW1_LEN, ROW2_LEN, ROW3_LEN};
+static const int row_lens[] = {ROW_NUM_LEN, ROW0_LEN, ROW1_LEN, ROW2_LEN, ROW3_LEN};
 
 static int kb_row = 0;
 static int kb_col = 0;
 
 static int row_x_offset(int row) {
     switch (row) {
-        case 0: return (SCREEN_W - ROW0_LEN * (KB_KEY_W + KB_PAD)) / 2;
-        case 1: return (SCREEN_W - ROW1_LEN * (KB_KEY_W + KB_PAD)) / 2;
-        case 2: return (SCREEN_W - ROW2_LEN * (KB_KEY_W + KB_PAD)) / 2;
-        case 3: return 4;
+        case 0: return (SCREEN_W - ROW_NUM_LEN * (NUM_KEY_W + KB_PAD)) / 2;
+        case 1: return (SCREEN_W - ROW0_LEN * (KB_KEY_W + KB_PAD)) / 2;
+        case 2: return (SCREEN_W - ROW1_LEN * (KB_KEY_W + KB_PAD)) / 2;
+        case 3: return (SCREEN_W - ROW2_LEN * (KB_KEY_W + KB_PAD)) / 2;
+        case 4: return 4;
         default: return 0;
     }
 }
@@ -257,15 +261,35 @@ static void draw_keyboard(void) {
     gfx_SetColor(COLOR_DIVIDER);
     gfx_HorizLine_NoClip(0, KB_TOP_Y - 2, SCREEN_W);
 
-    for (int r = 0; r < 3; r++) {
+    /* Number row (row 0) — narrower keys */
+    {
+        int x_off = row_x_offset(0);
+        int y = KB_TOP_Y;
+        for (int c = 0; c < ROW_NUM_LEN; c++) {
+            int x = x_off + c * (NUM_KEY_W + KB_PAD);
+            bool highlighted = (kb_row == 0 && c == kb_col);
+
+            gfx_SetColor(highlighted ? COLOR_KEY_HL : COLOR_KEY_BG);
+            gfx_FillRectangle_NoClip(x, y, NUM_KEY_W, KB_KEY_H);
+
+            ch_str[0] = row_num_chars[c];
+            int tx = x + (NUM_KEY_W - CHAR_W) / 2;
+            int ty = y + (KB_KEY_H - FONT_H) / 2;
+            gfx_SetTextFGColor(highlighted ? COLOR_KEY_HFG : COLOR_KEY_FG);
+            gfx_PrintStringXY(ch_str, tx, ty);
+        }
+    }
+
+    /* Letter rows (rows 1-3) */
+    for (int r = 1; r <= 3; r++) {
         int x_off = row_x_offset(r);
         int y = KB_TOP_Y + r * (KB_KEY_H + KB_PAD);
         int len = row_lens[r];
         const char *chars;
 
         switch (r) {
-            case 0: chars = row0_chars; break;
-            case 1: chars = row1_chars; break;
+            case 1: chars = row0_chars; break;
+            case 2: chars = row1_chars; break;
             default: chars = row2_chars; break;
         }
 
@@ -284,27 +308,27 @@ static void draw_keyboard(void) {
         }
     }
 
-    /* Control row */
+    /* Control row (row 4) */
     {
-        int y = KB_TOP_Y + 3 * (KB_KEY_H + KB_PAD);
+        int y = KB_TOP_Y + 4 * (KB_KEY_H + KB_PAD);
         int space_w = 160, del_w = 60, send_w = 70, gap = 8;
         int x = 4;
 
-        bool hl = (kb_row == 3 && kb_col == 0);
+        bool hl = (kb_row == 4 && kb_col == 0);
         gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
         gfx_FillRectangle_NoClip(x, y, space_w, KB_KEY_H);
         gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
         gfx_PrintStringXY("SPACE", x + (space_w - 5 * CHAR_W) / 2, y + (KB_KEY_H - FONT_H) / 2);
         x += space_w + gap;
 
-        hl = (kb_row == 3 && kb_col == 1);
+        hl = (kb_row == 4 && kb_col == 1);
         gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
         gfx_FillRectangle_NoClip(x, y, del_w, KB_KEY_H);
         gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
         gfx_PrintStringXY("DEL", x + (del_w - 3 * CHAR_W) / 2, y + (KB_KEY_H - FONT_H) / 2);
         x += del_w + gap;
 
-        hl = (kb_row == 3 && kb_col == 2);
+        hl = (kb_row == 4 && kb_col == 2);
         gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
         gfx_FillRectangle_NoClip(x, y, send_w, KB_KEY_H);
         gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
@@ -469,7 +493,7 @@ static int handle_keyboard_input(void) {
     }
 
     if (enter && !prev_enter) {
-        if (kb_row == 3) {
+        if (kb_row == 4) {
             if (kb_col == 0) {
                 if (input_len < MAX_INPUT - 1) { input_buf[input_len++] = ' '; input_buf[input_len] = '\0'; }
             } else if (kb_col == 1) {
@@ -483,9 +507,10 @@ static int handle_keyboard_input(void) {
         } else {
             char c;
             switch (kb_row) {
-                case 0: c = row0_chars[kb_col]; break;
-                case 1: c = row1_chars[kb_col]; break;
-                case 2: c = row2_chars[kb_col]; break;
+                case 0: c = row_num_chars[kb_col]; break;
+                case 1: c = row0_chars[kb_col]; break;
+                case 2: c = row1_chars[kb_col]; break;
+                case 3: c = row2_chars[kb_col]; break;
                 default: c = 0; break;
             }
             if (c != 0 && input_len < MAX_INPUT - 1) {
@@ -510,7 +535,7 @@ int main(void) {
     gfx_FillScreen(COLOR_BG);
 
     text_y = 0;
-    print_top_line("AICHAT v3.0", COLOR_PROMPT);
+    print_top_line("AICHAT v3.1", COLOR_PROMPT);
     print_top_line("Connect USB and start bridge.py", COLOR_FG);
     print_top_line("Arrows=move ENTER=type 1/2/3=autofill", COLOR_FG);
 
