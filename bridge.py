@@ -243,7 +243,7 @@ def main():
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    print(f"TI-84 AI Bridge on {PORT}")
+    print(f"TI-84 AI Bridge v4.0 on {PORT}")
     print(f"Max response: {MAX_RESPONSE} chars")
     print(f"Abbreviations loaded: {len(ABBREVIATIONS)}")
     print("Waiting for calculator connection...")

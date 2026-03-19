@@ -528,6 +528,33 @@ the bridge.
 
 ---
 
+## Phrase Mode (v4.0)
+
+Press the **MODE** key on your calculator at any time during input to open phrase mode.
+
+### How It Works
+
+1. Press **MODE** to open the phrase overlay
+2. Use **Left/Right** arrows to switch between category tabs
+3. Use **Up/Down** arrows to highlight a phrase
+4. Press **ENTER** to insert the phrase and return to typing
+5. Press **MODE** again to cancel without inserting
+
+### Categories
+
+| Tab | Phrases |
+|-----|---------|
+| STARTERS | WHICH OF THE FOLLOWING, A COMPANY HAS, A COMPANY, AN ANALYST, SHOULD A COMPANY, WHAT HAPPENS TO THE, HOW MUCH |
+| QUALIFIERS | MOST LIKELY, LEAST LIKELY, MOST APPROPRIATE, CLOSEST TO, BEST DESCRIBES, SHOULD BE CONSIDERED, WITH RESPECT TO, IN ORDER TO |
+| RATIOS | CURRENT RATIO, QUICK RATIO, CASH CONVERSION CYCLE, NET PROFIT MARGIN, CURRENT ASSETS, CURRENT LIABILITIES, ACCOUNTS PAYABLE |
+| FINANCE | WEIGHTED AVERAGE COST OF CAPITAL, COST OF CAPITAL, NET PRESENT VALUE, DISCOUNTED CASH FLOW, CAPITAL INVESTMENTS, CAPITAL BUDGETING, CORPORATE GOVERNANCE, FINANCIAL REPORTING QUALITY |
+
+### Input Buffer
+
+The input buffer has been increased from 256 to 512 characters, allowing for longer, more detailed questions.
+
+---
+
 ## You're Done!
 
 If everything is working, you should now be able to:
