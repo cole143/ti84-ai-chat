@@ -476,6 +476,74 @@ static void draw_phrase_mode(void) {
     gfx_PrintStringXY("L/R=tab  U/D=select  ENTER=insert", 4, SCREEN_H - 12);
 }
 
+/* Handle input while in phrase mode.
+ * Returns: 0 = still in phrase mode, 1 = phrase inserted (exit), -1 = cancelled (exit) */
+static int handle_phrase_input(void) {
+    static bool prev_up = false, prev_down = false;
+    static bool prev_left = false, prev_right = false;
+    static bool prev_enter = false, prev_mode = false;
+
+    kb_Scan();
+
+    bool up    = kb_IsDown(kb_KeyUp);
+    bool down  = kb_IsDown(kb_KeyDown);
+    bool left  = kb_IsDown(kb_KeyLeft);
+    bool right = kb_IsDown(kb_KeyRight);
+    bool enter = kb_IsDown(kb_KeyEnter);
+    bool mode  = (kb_Data[1] & kb_Mode) != 0;
+
+    /* MODE key cancels phrase mode */
+    if (mode && !prev_mode) {
+        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
+        prev_enter = enter; prev_mode = mode;
+        return -1;
+    }
+
+    /* Left/Right: switch category tabs */
+    if (left && !prev_left) {
+        phrase_cat--;
+        if (phrase_cat < 0) phrase_cat = NUM_CATEGORIES - 1;
+        phrase_sel = 0;
+    }
+    if (right && !prev_right) {
+        phrase_cat++;
+        if (phrase_cat >= NUM_CATEGORIES) phrase_cat = 0;
+        phrase_sel = 0;
+    }
+
+    /* Up/Down: navigate phrases within category */
+    if (up && !prev_up) {
+        phrase_sel--;
+        if (phrase_sel < 0) phrase_sel = cat_phrase_count(phrase_cat) - 1;
+    }
+    if (down && !prev_down) {
+        phrase_sel++;
+        if (phrase_sel >= cat_phrase_count(phrase_cat)) phrase_sel = 0;
+    }
+
+    /* ENTER: insert selected phrase into input buffer */
+    if (enter && !prev_enter) {
+        const char *phrase = phrases[phrase_cat][phrase_sel];
+        int plen = (int)strlen(phrase);
+
+        /* Check if it fits (phrase + space) */
+        if (input_len + plen + 1 < MAX_INPUT) {
+            memcpy(input_buf + input_len, phrase, plen);
+            input_len += plen;
+            input_buf[input_len++] = ' ';
+            input_buf[input_len] = '\0';
+        }
+
+        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
+        prev_enter = enter; prev_mode = mode;
+        return 1;
+    }
+
+    prev_up = up; prev_down = down; prev_left = left; prev_right = right;
+    prev_enter = enter; prev_mode = mode;
+    return 0;
+}
+
 /* ── USB event handler ── */
 static usb_error_t handle_usb_event(usb_event_t event, void *event_data,
                                      usb_callback_data_t *callback_data __attribute__((unused))) {
