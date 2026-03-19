@@ -402,6 +402,80 @@ static void draw_keyboard(void) {
     }
 }
 
+/* ── Phrase mode state ── */
+static bool phrase_mode = false;
+static int phrase_cat = 0;      /* current category tab (0-3) */
+static int phrase_sel = 0;      /* selected phrase within category */
+
+/* Draw the phrase mode overlay (full screen) */
+static void draw_phrase_mode(void) {
+    gfx_FillScreen(COLOR_BG);
+
+    /* Title bar */
+    gfx_SetColor(COLOR_KEY_HL);
+    gfx_FillRectangle_NoClip(0, 0, SCREEN_W, 14);
+    gfx_SetTextFGColor(COLOR_KEY_HFG);
+    gfx_PrintStringXY("PHRASE MODE  [MODE=cancel]", 4, 3);
+
+    /* Draw input preview (line 2) */
+    gfx_SetColor(COLOR_BG);
+    gfx_SetTextFGColor(COLOR_PROMPT);
+    gfx_PrintStringXY("> ", 0, 18);
+    {
+        char preview[CHARS_PER_LINE - 1];
+        int show = input_len;
+        if (show > CHARS_PER_LINE - 3) show = CHARS_PER_LINE - 3;
+        memcpy(preview, input_buf + (input_len - show), show);
+        preview[show] = '_';
+        preview[show + 1] = '\0';
+        gfx_SetTextFGColor(COLOR_FG);
+        gfx_PrintStringXY(preview, CHAR_W * 2, 18);
+    }
+
+    /* Tab bar at y=32 */
+    {
+        int tab_w = SCREEN_W / NUM_CATEGORIES;
+        for (int i = 0; i < NUM_CATEGORIES; i++) {
+            int x = i * tab_w;
+            bool active = (i == phrase_cat);
+            gfx_SetColor(active ? COLOR_KEY_HL : COLOR_KEY_BG);
+            gfx_FillRectangle_NoClip(x, 32, tab_w - 1, 16);
+            gfx_SetTextFGColor(active ? COLOR_KEY_HFG : COLOR_KEY_FG);
+            /* Center the tab name */
+            int name_len = (int)strlen(cat_names[i]);
+            int tx = x + (tab_w - name_len * CHAR_W) / 2;
+            gfx_PrintStringXY(cat_names[i], tx, 36);
+        }
+    }
+
+    /* Divider line */
+    gfx_SetColor(COLOR_DIVIDER);
+    gfx_HorizLine_NoClip(0, 50, SCREEN_W);
+
+    /* Phrase list starting at y=54 */
+    int count = cat_phrase_count(phrase_cat);
+    for (int i = 0; i < count; i++) {
+        int y = 54 + i * 20;
+        if (y + 18 > SCREEN_H) break;  /* don't draw off screen */
+
+        bool selected = (i == phrase_sel);
+
+        /* Highlight bar for selected phrase */
+        if (selected) {
+            gfx_SetColor(COLOR_KEY_HL);
+            gfx_FillRectangle_NoClip(2, y, SCREEN_W - 4, 18);
+        }
+
+        /* Phrase text */
+        gfx_SetTextFGColor(selected ? COLOR_KEY_HFG : COLOR_FG);
+        gfx_PrintStringXY(phrases[phrase_cat][i], 8, y + 5);
+    }
+
+    /* Bottom hint */
+    gfx_SetTextFGColor(COLOR_WAIT);
+    gfx_PrintStringXY("L/R=tab  U/D=select  ENTER=insert", 4, SCREEN_H - 12);
+}
+
 /* ── USB event handler ── */
 static usb_error_t handle_usb_event(usb_event_t event, void *event_data,
                                      usb_callback_data_t *callback_data __attribute__((unused))) {
