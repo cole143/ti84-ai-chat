@@ -27,15 +27,15 @@
 #define CHARS_PER_LINE (SCREEN_W / CHAR_W)
 
 /* Colors */
-#define COLOR_BG      0x00   /* black */
-#define COLOR_FG      0xFF   /* white */
-#define COLOR_PROMPT  0xE7   /* yellow */
-#define COLOR_WAIT    0x03   /* green */
-#define COLOR_KEY_BG  0x18   /* dark gray for key cells */
-#define COLOR_KEY_HL  0xE7   /* yellow highlight */
-#define COLOR_KEY_FG  0xFF   /* white text on keys */
-#define COLOR_KEY_HFG 0x00   /* black text on highlight */
-#define COLOR_DIVIDER 0x18   /* gray divider line */
+#define COLOR_BG      0xFF   /* white background */
+#define COLOR_FG      0x00   /* black text */
+#define COLOR_PROMPT  0x10   /* dark blue for prompts */
+#define COLOR_WAIT    0x03   /* green for status */
+#define COLOR_KEY_BG  0xDE   /* light gray for key cells */
+#define COLOR_KEY_HL  0x10   /* dark blue highlight */
+#define COLOR_KEY_FG  0x00   /* black text on keys */
+#define COLOR_KEY_HFG 0xFF   /* white text on highlight */
+#define COLOR_DIVIDER 0xB5   /* medium gray divider line */
 
 /* ── Keyboard layout ── */
 #define KB_TOP_Y      136    /* keyboard starts here */
@@ -435,7 +435,7 @@ int main(void) {
     gfx_Begin();
     gfx_SetMonospaceFont(CHAR_W);
     gfx_SetTextBGColor(COLOR_BG);
-    gfx_SetTextTransparentColor(COLOR_BG);
+    gfx_SetTextTransparentColor(0xFE);  /* unused palette index — never matches BG */
     gfx_FillScreen(COLOR_BG);
 
     text_y = 0;
