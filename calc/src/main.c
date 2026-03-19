@@ -635,6 +635,7 @@ static int handle_keyboard_input(void) {
     static bool prev_enter = false, prev_clear = false;
     static bool prev_del = false, prev_zero = false;
     static bool prev_1 = false, prev_2 = false, prev_3 = false;
+    static bool prev_mode = false;
 
     kb_Scan();
 
@@ -649,27 +650,40 @@ static int handle_keyboard_input(void) {
     bool key1  = (kb_Data[3] & kb_1) != 0;
     bool key2  = (kb_Data[4] & kb_2) != 0;
     bool key3  = (kb_Data[5] & kb_3) != 0;
+    bool mode  = (kb_Data[1] & kb_Mode) != 0;
 
     /* Autocomplete: press 1, 2, or 3 to accept suggestion */
     if (key1 && !prev_1 && num_suggestions >= 1) {
         accept_suggestion(0);
         prev_1 = key1; prev_2 = key2; prev_3 = key3;
         prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
+        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
         return 0;
     }
     if (key2 && !prev_2 && num_suggestions >= 2) {
         accept_suggestion(1);
         prev_1 = key1; prev_2 = key2; prev_3 = key3;
         prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
+        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
         return 0;
     }
     if (key3 && !prev_3 && num_suggestions >= 3) {
         accept_suggestion(2);
         prev_1 = key1; prev_2 = key2; prev_3 = key3;
         prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
+        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
+        return 0;
+    }
+
+    /* MODE key: enter phrase mode */
+    if (mode && !prev_mode) {
+        phrase_mode = true;
+        phrase_cat = 0;
+        phrase_sel = 0;
+        prev_mode = mode;
+        prev_1 = key1; prev_2 = key2; prev_3 = key3;
+        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
+        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
         return 0;
     }
 
@@ -688,7 +702,7 @@ static int handle_keyboard_input(void) {
     if (clear && !prev_clear) {
         prev_1 = key1; prev_2 = key2; prev_3 = key3;
         prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
+        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
         return -1;
     }
 
@@ -709,7 +723,7 @@ static int handle_keyboard_input(void) {
             } else if (kb_col == 2) {
                 prev_1 = key1; prev_2 = key2; prev_3 = key3;
                 prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-                prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
+                prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
                 return 1;
             }
         } else {
@@ -730,7 +744,7 @@ static int handle_keyboard_input(void) {
 
     prev_1 = key1; prev_2 = key2; prev_3 = key3;
     prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-    prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero;
+    prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
     return 0;
 }
 
@@ -743,9 +757,9 @@ int main(void) {
     gfx_FillScreen(COLOR_BG);
 
     text_y = 0;
-    print_top_line("AICHAT v3.1", COLOR_PROMPT);
+    print_top_line("AICHAT v4.0", COLOR_PROMPT);
     print_top_line("Connect USB and start bridge.py", COLOR_FG);
-    print_top_line("Arrows=move ENTER=type 1/2/3=autofill", COLOR_FG);
+    print_top_line("Arrows=move ENTER=type MODE=phrases", COLOR_FG);
 
     const usb_standard_descriptors_t *desc = srl_GetCDCStandardDescriptors();
     usb_error_t usb_err = usb_Init(handle_usb_event, NULL, desc, USB_DEFAULT_INIT_FLAGS);
@@ -796,15 +810,33 @@ int main(void) {
 
         int result;
         do {
-            result = handle_keyboard_input();
-            if (result == -1) { running = false; break; }
-            usb_HandleEvents();
-            if (!has_device) break;  /* drop to reconnect screen */
-            update_suggestions();
-            draw_input_line();
-            draw_suggestions();
-            draw_keyboard();
-            delay(80);
+            if (phrase_mode) {
+                /* Phrase mode overlay */
+                draw_phrase_mode();
+                int pres = handle_phrase_input();
+                if (pres != 0) {
+                    /* Exited phrase mode (inserted or cancelled) */
+                    phrase_mode = false;
+                    gfx_FillScreen(COLOR_BG);
+                    draw_input_line();
+                    draw_suggestions();
+                    draw_keyboard();
+                }
+                usb_HandleEvents();
+                if (!has_device) break;
+                delay(80);
+                result = 0;  /* stay in input loop */
+            } else {
+                result = handle_keyboard_input();
+                if (result == -1) { running = false; break; }
+                usb_HandleEvents();
+                if (!has_device) break;
+                update_suggestions();
+                draw_input_line();
+                draw_suggestions();
+                draw_keyboard();
+                delay(80);
+            }
         } while (result == 0);
 
         if (!running || !has_device || input_len == 0) continue;
