@@ -7,7 +7,34 @@ has a 3-mode menu:
 2. **HOW TO USE** — names the formula, explains when to apply it, calls out traps.
 3. **WORKED EXAMPLE** — fully solved practice-exam-style problem with step-by-step.
 
-## How to type these into the calculator
+## Recommended: drag-drop the prebuilt `.8xp` files
+
+Already-compiled binaries live in `basic/bin/` (built from the `.txt` sources via
+`python -m host.build_basic`):
+
+```
+basic/bin/MARGIN.8xp
+basic/bin/MRETURN.8xp
+basic/bin/LEVRAT.8xp
+basic/bin/DDM.8xp
+basic/bin/MDDM.8xp
+basic/bin/JPE.8xp
+basic/bin/PREF.8xp
+```
+
+Open TI Connect CE, plug in the calculator, drag all 7 `.8xp` files into the
+calculator content pane. Each shows up under `[PRGM] > EXEC` on the calc.
+
+To rebuild after editing a `.txt` source:
+
+```
+cd C:\ti84-bridge
+python -m host.build_basic
+```
+
+(Requires `tivars` from `requirements.txt`.)
+
+## Alternative: type each program into the calculator
 
 1. On the calc: `[PRGM]` -> `NEW` -> `Create New` -> name (max 8 chars uppercase) -> `[ENTER]`.
 2. Type each line from the `.txt` source. Newline = `[ENTER]` = new program line.

@@ -5,3 +5,4 @@ python-pptx>=0.6.23
 pypdf>=4.0.0
 python-docx>=1.1.0
 pytest>=8.0.0
+tivars>=0.9.0
