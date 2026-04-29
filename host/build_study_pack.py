@@ -114,17 +114,26 @@ Cumulative voting: shares * seats votes, distributable across candidates (better
 
 def _to_ascii(text: str) -> str:
     """Normalize Unicode and drop characters that don't survive ASCII encoding."""
+    # Pre-NFKD replacements (must run before NFKD to avoid decomposition into bare digits)
+    pre = {"\u00bd": "1/2", "\u00bc": "1/4", "\u00be": "3/4"}
+    for u, a in pre.items():
+        text = text.replace(u, a)
     text = unicodedata.normalize("NFKD", text)
     replacements = {
-        "—": "-", "–": "-",
-        "‘": "'", "’": "'",
-        "“": '"', "”": '"',
-        "…": "...", "°": " deg",
-        "•": "-", "×": "x", "÷": "/",
-        "≤": "<=", "≥": ">=", "≠": "!=",
-        "α": "alpha", "β": "beta", "σ": "sigma",
-        "μ": "mu", "√": "sqrt", "∞": "inf",
-        "π": "pi", "∑": "sum",
+        "\u2014": "-", "\u2013": "-",
+        "\u2019": "'", "\u2018": "'",
+        "\u201d": '"', "\u201c": '"',
+        "\u2026": "...", "\u00b0": " deg",
+        "\u2022": "-", "\u00d7": "x", "\u00f7": "/",
+        "\u2264": "<=", "\u2265": ">=", "\u2260": "!=",
+        "\u03b1": "alpha", "\u03b2": "beta", "\u03c3": "sigma",
+        "\u03bc": "mu", "\u221a": "sqrt", "\u221e": "inf",
+        "\u03c0": "pi", "\u2211": "sum",
+        "\u2212": "-",        # U+2212 mathematical minus sign
+        "\u0394": "D",        # U+0394 Delta
+        "\u03c1": "rho",      # U+03C1 rho
+        "\u03bb": "lambda",   # U+03BB lambda
+        "\u201e": '"',        # U+201E low double quote
     }
     for u, a in replacements.items():
         text = text.replace(u, a)

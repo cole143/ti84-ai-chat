@@ -74,3 +74,9 @@ def test_assemble_includes_key_formulas():
         "Preferred stock value = D / k",
     ]:
         assert token in pack, f"Missing formula token: {token}"
+
+
+def test_assemble_is_deterministic():
+    pack1 = bsp.assemble()
+    pack2 = bsp.assemble()
+    assert pack1 == pack2, "assemble() is not byte-for-byte reproducible"
