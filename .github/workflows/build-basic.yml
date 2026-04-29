@@ -1,0 +1,32 @@
+name: Build TI-BASIC programs
+
+on:
+  push:
+    branches: [master, main, equities-exam-tutor]
+    paths:
+      - 'basic/*.txt'
+      - 'host/build_basic.py'
+      - '.github/workflows/build-basic.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tivars
+        run: pip install tivars
+
+      - name: Build .8xp files
+        run: python -m host.build_basic
+
+      - name: Upload .8xp bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ti84-basic-programs
+          path: basic/bin/*.8xp
