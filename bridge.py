@@ -14,6 +14,8 @@ import serial
 import anthropic
 from dotenv import load_dotenv
 
+from host.system_prompt import build_system
+
 load_dotenv()
 
 PORT = sys.argv[1] if len(sys.argv) > 1 else "COM3"
@@ -103,9 +105,42 @@ ABBREVIATIONS = {
     "COE": "cost of equity",
     "FCFF": "free cash flow to the firm",
     "CAPEX": "capital expenditure",
-    "MM": "Modigliani-Miller",
+    "MM": "maintenance margin requirement",
     "PECKING": "pecking order theory",
     "TRADEOFF": "static trade-off theory",
+    # Equity exam additions (FIN 30103 Module 3)
+    "DDM": "dividend discount model",
+    "MDDM": "multi-stage dividend discount model",
+    "JPE": "justified P/E ratio",
+    "PE": "price-to-earnings ratio",
+    "PB": "price-to-book ratio",
+    "PS": "price-to-sales ratio",
+    "EV": "enterprise value",
+    "EBIT": "earnings before interest and taxes",
+    "EBITDA": "earnings before interest taxes depreciation and amortization",
+    "DOL": "degree of operating leverage",
+    "HHI": "Herfindahl-Hirschman Index",
+    "ADR": "American Depository Receipt",
+    "GDR": "Global Depository Receipt",
+    "DRP": "depository receipt",
+    "ETF": "exchange-traded fund",
+    "IPO": "initial public offering",
+    "IM": "initial margin requirement",
+    "LR": "leverage ratio",
+    "GTC": "good-til-cancelled order",
+    "IOC": "immediate-or-cancel order",
+    "FOK": "fill-or-kill order",
+    "BV": "book value of equity",
+    "PREF": "preferred stock",
+    "STAT": "statutory voting",
+    "CUM": "cumulative voting",
+    "PRI": "primary market",
+    "SECM": "secondary market",
+    "PW": "price-weighted index",
+    "VW": "value-weighted (market-cap) index",
+    "EW": "equal-weighted index",
+    "TR": "total return",
+    "PR": "price return",
     # Financial ratios
     "CR": "current ratio",
     "QR": "quick ratio",
@@ -140,47 +175,6 @@ def expand_abbreviations(text: str) -> str:
         pattern = r'\b' + re.escape(abbr) + r'\b'
         text = re.sub(pattern, ABBREVIATIONS[abbr], text, flags=re.IGNORECASE)
     return text
-
-SYSTEM_PROMPT = """You are an expert exam assistant for two courses:
-1. FIN 30603 - Investments (Bodie, Kane, Marcus - Essentials of Investments): risk/return, CAPM, APT, EMH, bonds, duration
-2. CFA Level 1 - FSA & Corporate Issuers: financial ratios, DuPont, NPV/IRR, capital structure, governance, business models
-
-CRITICAL DISPLAY RULES:
-- ONE SINGLE PARAGRAPH. NO line breaks. NO bullets. NO markdown. NO asterisks.
-- Under 400 characters total. Plain ASCII only.
-
-ANSWERING RULES:
-- If multiple choice options are given (A B C D), pick the BEST answer FIRST: "ANSWER: [letter]. [explanation]"
-- If fill-in-the-blank, give the standard textbook term first.
-- For calculations, show formula, plug in numbers, give final answer.
-- Use standard CFA/textbook definitions. Most commonly tested answer wins.
-
-KEY EXAM CONCEPTS TO KNOW:
-- Arithmetic average ignores compounding; geometric accounts for it. Dollar-weighted = IRR.
-- APR ignores compounding; EAR does not.
-- Sharpe ratio = slope of CAL = risk premium / standard deviation.
-- Complete portfolio = risky assets + risk-free asset.
-- Systematic risk cannot be diversified away; unsystematic can.
-- Beta measures systematic/market risk. Total risk = systematic + firm-specific.
-- CAPM: E(r) = Rf + Beta(Rm - Rf). Alpha = actual return minus CAPM expected return.
-- SML plots expected return vs beta. CML plots expected return vs total risk (std dev).
-- Investors prefer portfolios LEFT AND ABOVE the current opportunity set (higher return, lower risk).
-- EMH: weak=past prices, semi-strong=all public info, strong=all info including inside.
-- Momentum = short-term continuation. Reversal = long-term mean reversion.
-- Bond prices move inversely to yields. Duration measures price sensitivity to rate changes.
-- Duration of zero-coupon bond = maturity. Lower coupon = higher duration.
-- Modified duration = Macaulay duration / (1 + y). Price change approx = -ModDur x delta_y.
-- Immunization: match duration of assets to duration of liabilities.
-- Convexity: curvature benefit; investors prefer more convexity.
-- NPV > 0 accept; IRR > hurdle rate accept. NPV preferred for mutually exclusive projects.
-- DuPont 3-part: ROE = profit margin x asset turnover x equity multiplier.
-- Sustainable growth = ROE x retention ratio.
-- Cash conversion cycle = DOH + DSO - days payable outstanding.
-- Liquidity preference theory: forward rates include liquidity premium, yield curve biased upward.
-- Sinking fund: issuer retires bonds gradually. Callable: issuer can redeem early. Puttable: holder can sell back.
-- WACC = wd x rd x (1-t) + we x re. MM without taxes: capital structure irrelevant.
-- Pecking order: internal funds first, then debt, then equity.
-- Agency costs: insufficient effort, empire building, entrenchment, self-dealing."""
 
 ASCII_REPLACEMENTS = {
     "\u2014": "-",
@@ -217,18 +211,37 @@ def sanitize(text: str) -> str:
         text = text.replace(char, replacement)
     return text.encode("ascii", errors="replace").decode("ascii").strip()
 
-def ask_claude(client: anthropic.Anthropic, query: str) -> str:
-    """Send query to Claude and return sanitized, truncated response."""
+def ask_claude(client: anthropic.Anthropic, query: str, system: list[dict]) -> str:
+    """Send query to Claude and return sanitized, truncated response.
+
+    Uses claude-opus-4-7 with adaptive thinking and effort=high.
+    The `system` list is the cached two-block prompt — pass the same list
+    to every call to keep cache hits warm.
+    """
     try:
         msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
-            system=SYSTEM_PROMPT,
+            model="claude-opus-4-7",
+            max_tokens=4000,
+            thinking={"type": "adaptive"},
+            output_config={"effort": "high"},
+            system=system,
             messages=[{"role": "user", "content": query}],
         )
-        response = msg.content[0].text
-        response = sanitize(response)
-        return response[:MAX_RESPONSE]
+        # Adaptive thinking puts ThinkingBlock(s) before the TextBlock.
+        # Filter to text blocks only.
+        text = next(
+            (b.text for b in msg.content if b.type == "text"),
+            "",
+        )
+        text = sanitize(text)
+        usage = msg.usage
+        print(
+            f"[USE] in={usage.input_tokens} "
+            f"cache_read={usage.cache_read_input_tokens} "
+            f"cache_write={usage.cache_creation_input_tokens} "
+            f"out={usage.output_tokens}"
+        )
+        return text[:MAX_RESPONSE]
     except anthropic.APIError as e:
         return f"API Error: {str(e)[:80]}"
     except Exception as e:
@@ -242,10 +255,13 @@ def main():
         sys.exit(1)
 
     client = anthropic.Anthropic(api_key=api_key)
+    system = build_system()
+    pack_chars = sum(len(b["text"]) for b in system)
 
-    print(f"TI-84 AI Bridge v4.0 on {PORT}")
+    print(f"TI-84 AI Bridge v5.0 (Equities) on {PORT}")
     print(f"Max response: {MAX_RESPONSE} chars")
     print(f"Abbreviations loaded: {len(ABBREVIATIONS)}")
+    print(f"SYSTEM loaded: {len(system)} blocks, {pack_chars:,} chars total")
     print("Waiting for calculator connection...")
     print("Press Ctrl+C to quit.\n")
 
@@ -267,7 +283,7 @@ def main():
                 expanded = expand_abbreviations(line)
                 if expanded != line:
                     print(f"[E] {len(expanded)} chars")
-                response = ask_claude(client, expanded)
+                response = ask_claude(client, expanded, system)
                 print(f"[RES] {len(response)} chars")
                 ser.write((response + "\n").encode("ascii"))
         except serial.SerialException:
