@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tivars.models import TI_84PCE
 from tivars.types import TIProgram
 
 
@@ -29,9 +30,9 @@ def build_one(src_path: Path, out_dir: Path) -> Path:
 
     src = src_path.read_text(encoding="utf-8")
     program = TIProgram(name=name)
-    program.load_string(src)
+    program.load_string(src, model=TI_84PCE)
     out_path = out_dir / f"{name}.8xp"
-    out_path.write_bytes(program.export().bytes())
+    program.save(str(out_path), model=TI_84PCE)
     return out_path
 
 
