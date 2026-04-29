@@ -263,12 +263,12 @@ def main():
                 line = ser.readline().decode("ascii", errors="replace").strip()
                 if not line:
                     continue
-                print(f"[RAW]      {line}")
+                print(f"[R] {len(line)} chars")
                 expanded = expand_abbreviations(line)
                 if expanded != line:
-                    print(f"[EXPANDED] {expanded}")
+                    print(f"[E] {len(expanded)} chars")
                 response = ask_claude(client, expanded)
-                print(f"[RESPONSE] {response}\n")
+                print(f"[RES] {len(response)} chars")
                 ser.write((response + "\n").encode("ascii"))
         except serial.SerialException:
             print("USB disconnected. Reconnecting in 2s...")
