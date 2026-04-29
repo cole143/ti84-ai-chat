@@ -1,0 +1,47 @@
+:ClrHome
+:Menu("MULTI-STAGE DDM","CALCULATE",1,"HOW TO USE",2,"WORKED EX",3)
+:Lbl 1
+:ClrHome
+:Disp "TWO-STAGE: D1,D2,"
+:Disp "THEN CONSTANT G"
+:Input "D1=? ",A
+:Input "D2=? ",B
+:Input "G AFTER (DEC)=? ",G
+:Input "K (DEC)=? ",K
+:If K<=G
+:Then
+:Disp "ERR: NEED K > G"
+:Stop
+:End
+:B*(1+G)/(K-G)->T
+:A/(1+K)+B/(1+K)^2+T/(1+K)^2->V
+:Disp "STOCK VALUE:"
+:Disp V
+:Disp "TERMINAL VAL TV2:"
+:Disp T
+:Stop
+:Lbl 2
+:ClrHome
+:Disp "TV2=D2*(1+G)/(K-G)"
+:Disp ""
+:Disp "V0=D1/(1+K)"
+:Disp "  +D2/(1+K)^2"
+:Disp "  +TV2/(1+K)^2"
+:Disp ""
+:Disp "USE: explicit early"
+:Disp "divs then perpetuity"
+:Pause
+:Stop
+:Lbl 3
+:ClrHome
+:Disp "Q: D1=1.25 D2=1.56"
+:Disp "G=5% K=11%"
+:Disp ""
+:Disp "TV2=1.56*1.05/.06"
+:Disp "  =27.30"
+:Disp "V0=1.13+1.27+22.16"
+:Disp "  =$24.55"
+:Disp ""
+:Disp "ANS: C) 24.55"
+:Pause
+:Stop

@@ -1,0 +1,39 @@
+:ClrHome
+:Menu("MARGIN RETURN","CALCULATE",1,"HOW TO USE",2,"WORKED EX",3)
+:Lbl 1
+:ClrHome
+:Input "P0=? ",P
+:Input "P_END=? ",E
+:Input "IM (DEC)=? ",I
+:Input "DIV (0 IF NONE) ",D
+:((E-P)+D)/(I*P)->R
+:Disp "RETURN (DECIMAL):"
+:Disp R
+:Disp "RETURN (%):"
+:Disp R*100
+:Stop
+:Lbl 2
+:ClrHome
+:Disp "R = (P_END-P0+D)"
+:Disp "    / (IM*P0)"
+:Disp ""
+:Disp "EQUIV: R = HPR/IM"
+:Disp ""
+:Disp "USE: HPR on margin"
+:Disp ""
+:Disp "TRAP: SUBTRACT"
+:Disp "INTEREST IF STATED"
+:Pause
+:Stop
+:Lbl 3
+:ClrHome
+:Disp "Q: P0=$32 P_E=$34"
+:Disp "IM=40% NO DIVS"
+:Disp ""
+:Disp "HPR=2/32=.0625"
+:Disp "R=.0625/.40"
+:Disp " =0.15625"
+:Disp ""
+:Disp "ANS: A) 15.6%"
+:Pause
+:Stop

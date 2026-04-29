@@ -1,0 +1,34 @@
+:ClrHome
+:Menu("PREFERRED STOCK","CALCULATE",1,"HOW TO USE",2,"WORKED EX",3)
+:Lbl 1
+:ClrHome
+:Input "DIV D=? ",D
+:Input "REQ RATE K (DEC) ",K
+:D/K->V
+:Disp "PREFERRED VALUE:"
+:Disp V
+:Stop
+:Lbl 2
+:ClrHome
+:Disp "V = D / K"
+:Disp ""
+:Disp "SPECIAL CASE OF DDM"
+:Disp "WITH G = 0"
+:Disp ""
+:Disp "PERPETUITY OF FIXED"
+:Disp "DIVIDEND"
+:Disp ""
+:Disp "TRAP: K AS DECIMAL"
+:Disp "(0.0775 NOT 7.75)"
+:Pause
+:Stop
+:Lbl 3
+:ClrHome
+:Disp "Q: D=$7 K=7.75%"
+:Disp ""
+:Disp "V = 7 / 0.0775"
+:Disp "  = $90.32"
+:Disp ""
+:Disp "ANS: C) $90.32"
+:Pause
+:Stop

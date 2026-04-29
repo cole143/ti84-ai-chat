@@ -1,0 +1,48 @@
+:ClrHome
+:Menu("JUSTIFIED P/E","CALCULATE",1,"HOW TO USE",2,"WORKED EX",3)
+:Lbl 1
+:ClrHome
+:Disp "1: PE FROM B,K,G"
+:Disp "2: G FROM B,ROE"
+:Input "MODE? ",M
+:If M=2
+:Then
+:Input "RETENTION B=? ",B
+:Input "ROE (DEC)=? ",R
+:B*R->G
+:Disp "G = B * ROE"
+:Disp G
+:Stop
+:End
+:Input "RETENTION B=? ",B
+:Input "K (DEC)=? ",K
+:Input "G (DEC)=? ",G
+:(1-B)/(K-G)->P
+:Disp "JUSTIFIED P/E:"
+:Disp P
+:Stop
+:Lbl 2
+:ClrHome
+:Disp "P/E=(1-B)/(K-G)"
+:Disp "B=retention ratio"
+:Disp "PAYOUT=1-B"
+:Disp ""
+:Disp "G=B*ROE (sustainable"
+:Disp "  growth)"
+:Disp ""
+:Disp "USE: compare actual"
+:Disp "P/E to justified"
+:Pause
+:Stop
+:Lbl 3
+:ClrHome
+:Disp "Q: B=0.40 K=10%"
+:Disp "G=4%"
+:Disp ""
+:Disp "P/E=(1-.40)/(.10-.04)"
+:Disp "   =0.60/0.06"
+:Disp "   =10.0"
+:Disp ""
+:Disp "ANS: justified=10x"
+:Pause
+:Stop

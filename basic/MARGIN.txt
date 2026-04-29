@@ -1,0 +1,38 @@
+:ClrHome
+:Menu("MARGIN CALL","CALCULATE",1,"HOW TO USE",2,"WORKED EX",3)
+:Lbl 1
+:ClrHome
+:Disp "ENTER % AS DECIMALS"
+:Disp "EX 50%=0.5"
+:Input "P0=? ",P
+:Input "IM (DEC)=? ",I
+:Input "MM (DEC)=? ",N
+:P*(1-I)/(1-N)->C
+:Disp "CALL PRICE:"
+:Disp C
+:Stop
+:Lbl 2
+:ClrHome
+:Disp "FORMULA:"
+:Disp "P_CALL = P0 *"
+:Disp "  (1-IM)/(1-MM)"
+:Disp ""
+:Disp "USE: stock drops"
+:Disp "below maintenance"
+:Disp ""
+:Disp "TRAP: ENTER % AS"
+:Disp "DECIMAL (0.5 NOT 50)"
+:Pause
+:Stop
+:Lbl 3
+:ClrHome
+:Disp "Q: P0=$26 IM=50%"
+:Disp "MM=25%"
+:Disp ""
+:Disp "P_CALL = 26*"
+:Disp " (.5/.75)"
+:Disp "      = 17.33"
+:Disp ""
+:Disp "ANS: C) 17.33"
+:Pause
+:Stop

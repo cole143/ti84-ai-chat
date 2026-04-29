@@ -1,0 +1,32 @@
+:ClrHome
+:Menu("LEVERAGE RATIO","CALCULATE",1,"HOW TO USE",2,"WORKED EX",3)
+:Lbl 1
+:ClrHome
+:Input "IM (DEC)=? ",I
+:1/I->L
+:Disp "LEVERAGE RATIO:"
+:Disp L
+:Stop
+:Lbl 2
+:ClrHome
+:Disp "L = 1 / IM"
+:Disp ""
+:Disp "IM=50% -> 2x"
+:Disp "IM=40% -> 2.5x"
+:Disp "IM=25% -> 4x"
+:Disp ""
+:Disp "USE: amplifies"
+:Disp "% return AND loss"
+:Pause
+:Stop
+:Lbl 3
+:ClrHome
+:Disp "Q: $10 EQUITY ON"
+:Disp "$40 STOCK = IM 25%"
+:Disp ""
+:Disp "L = 1/.25 = 4x"
+:Disp ""
+:Disp "ANS: leverage 4:1"
+:Disp "(NOT 3:1)"
+:Pause
+:Stop

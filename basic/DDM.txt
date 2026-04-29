@@ -1,0 +1,42 @@
+:ClrHome
+:Menu("GORDON DDM","CALCULATE",1,"HOW TO USE",2,"WORKED EX",3)
+:Lbl 1
+:ClrHome
+:Disp "ENTER RATES"
+:Disp "AS DECIMALS"
+:Input "D1=? ",D
+:Input "K (DEC)=? ",K
+:Input "G (DEC)=? ",G
+:If K<=G
+:Then
+:Disp "ERR: NEED K > G"
+:Stop
+:End
+:D/(K-G)->V
+:Disp "STOCK VALUE:"
+:Disp V
+:Stop
+:Lbl 2
+:ClrHome
+:Disp "V0 = D1 / (K-G)"
+:Disp ""
+:Disp "REQUIRES: K > G"
+:Disp "AND CONSTANT G"
+:Disp ""
+:Disp "USE: mature firms"
+:Disp "with stable growth"
+:Disp ""
+:Disp "TRAP: D1 IS NEXT"
+:Disp "YEAR DIV NOT D0"
+:Pause
+:Stop
+:Lbl 3
+:ClrHome
+:Disp "Q: D1=$2 K=10%"
+:Disp "G=4%"
+:Disp ""
+:Disp "V0=2/(.10-.04)"
+:Disp "  =2/0.06"
+:Disp "  =$33.33"
+:Pause
+:Stop
