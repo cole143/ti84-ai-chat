@@ -1,0 +1,4 @@
+study_pack.txt
+host/__pycache__/
+host/tests/__pycache__/
+.pytest_cache/

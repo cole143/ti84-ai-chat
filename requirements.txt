@@ -1,3 +1,7 @@
 pyserial==3.5
 anthropic>=0.39.0
 python-dotenv>=1.0.0
+python-pptx>=0.6.23
+pypdf>=4.0.0
+python-docx>=1.1.0
+pytest>=8.0.0
