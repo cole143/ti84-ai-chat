@@ -22,7 +22,7 @@
 :Disp " "
 :Disp "TRAP: ENTER % AS"
 :Disp "DECIMAL (0.5 NOT 50)"
-:Pause
+:Pause 
 :Stop
 :Lbl 3
 :ClrHome
@@ -34,5 +34,5 @@
 :Disp "      = 17.33"
 :Disp " "
 :Disp "ANS: C) 17.33"
-:Pause
+:Pause 
 :Stop

@@ -32,7 +32,7 @@
 :Disp " "
 :Disp "USE: compare actual"
 :Disp "P/E to justified"
-:Pause
+:Pause 
 :Stop
 :Lbl 3
 :ClrHome
@@ -44,5 +44,5 @@
 :Disp "   =10.0"
 :Disp " "
 :Disp "ANS: justified=10x"
-:Pause
+:Pause 
 :Stop

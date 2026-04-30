@@ -20,7 +20,7 @@
 :Disp " "
 :Disp "TRAP: K AS DECIMAL"
 :Disp "(0.0775 NOT 7.75)"
-:Pause
+:Pause 
 :Stop
 :Lbl 3
 :ClrHome
@@ -30,5 +30,5 @@
 :Disp "  = $90.32"
 :Disp " "
 :Disp "ANS: C) $90.32"
-:Pause
+:Pause 
 :Stop

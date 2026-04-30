@@ -30,7 +30,7 @@
 :Disp " "
 :Disp "USE: explicit early"
 :Disp "divs then perpetuity"
-:Pause
+:Pause 
 :Stop
 :Lbl 3
 :ClrHome
@@ -43,5 +43,5 @@
 :Disp "  =$24.55"
 :Disp " "
 :Disp "ANS: C) 24.55"
-:Pause
+:Pause 
 :Stop

@@ -28,7 +28,7 @@
 :Disp " "
 :Disp "TRAP: D1 IS NEXT"
 :Disp "YEAR DIV NOT D0"
-:Pause
+:Pause 
 :Stop
 :Lbl 3
 :ClrHome
@@ -38,5 +38,5 @@
 :Disp "V0=2/(.10-.04)"
 :Disp "  =2/0.06"
 :Disp "  =$33.33"
-:Pause
+:Pause 
 :Stop

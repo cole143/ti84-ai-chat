@@ -17,7 +17,7 @@
 :Disp " "
 :Disp "USE: amplifies"
 :Disp "% return AND loss"
-:Pause
+:Pause 
 :Stop
 :Lbl 3
 :ClrHome
@@ -28,5 +28,5 @@
 :Disp " "
 :Disp "ANS: leverage 4:1"
 :Disp "(NOT 3:1)"
-:Pause
+:Pause 
 :Stop

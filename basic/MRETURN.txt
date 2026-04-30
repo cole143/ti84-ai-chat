@@ -23,7 +23,7 @@
 :Disp " "
 :Disp "TRAP: SUBTRACT"
 :Disp "INTEREST IF STATED"
-:Pause
+:Pause 
 :Stop
 :Lbl 3
 :ClrHome
@@ -35,5 +35,5 @@
 :Disp " =0.15625"
 :Disp " "
 :Disp "ANS: A) 15.6%"
-:Pause
+:Pause 
 :Stop
