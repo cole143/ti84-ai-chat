@@ -19,13 +19,13 @@
 :Lbl 2
 :ClrHome
 :Disp "V0 = D1 / (K-G)"
-:Disp ""
+:Disp " "
 :Disp "REQUIRES: K > G"
 :Disp "AND CONSTANT G"
-:Disp ""
+:Disp " "
 :Disp "USE: mature firms"
 :Disp "with stable growth"
-:Disp ""
+:Disp " "
 :Disp "TRAP: D1 IS NEXT"
 :Disp "YEAR DIV NOT D0"
 :Pause
@@ -34,7 +34,7 @@
 :ClrHome
 :Disp "Q: D1=$2 K=10%"
 :Disp "G=4%"
-:Disp ""
+:Disp " "
 :Disp "V0=2/(.10-.04)"
 :Disp "  =2/0.06"
 :Disp "  =$33.33"

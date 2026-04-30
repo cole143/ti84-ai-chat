@@ -16,11 +16,11 @@
 :ClrHome
 :Disp "R = (P_END-P0+D)"
 :Disp "    / (IM*P0)"
-:Disp ""
+:Disp " "
 :Disp "EQUIV: R = HPR/IM"
-:Disp ""
+:Disp " "
 :Disp "USE: HPR on margin"
-:Disp ""
+:Disp " "
 :Disp "TRAP: SUBTRACT"
 :Disp "INTEREST IF STATED"
 :Pause
@@ -29,11 +29,11 @@
 :ClrHome
 :Disp "Q: P0=$32 P_E=$34"
 :Disp "IM=40% NO DIVS"
-:Disp ""
+:Disp " "
 :Disp "HPR=2/32=.0625"
 :Disp "R=.0625/.40"
 :Disp " =0.15625"
-:Disp ""
+:Disp " "
 :Disp "ANS: A) 15.6%"
 :Pause
 :Stop

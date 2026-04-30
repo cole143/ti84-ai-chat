@@ -10,11 +10,11 @@
 :Lbl 2
 :ClrHome
 :Disp "L = 1 / IM"
-:Disp ""
+:Disp " "
 :Disp "IM=50% -> 2x"
 :Disp "IM=40% -> 2.5x"
 :Disp "IM=25% -> 4x"
-:Disp ""
+:Disp " "
 :Disp "USE: amplifies"
 :Disp "% return AND loss"
 :Pause
@@ -23,9 +23,9 @@
 :ClrHome
 :Disp "Q: $10 EQUITY ON"
 :Disp "$40 STOCK = IM 25%"
-:Disp ""
+:Disp " "
 :Disp "L = 1/.25 = 4x"
-:Disp ""
+:Disp " "
 :Disp "ANS: leverage 4:1"
 :Disp "(NOT 3:1)"
 :Pause

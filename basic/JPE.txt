@@ -26,10 +26,10 @@
 :Disp "P/E=(1-B)/(K-G)"
 :Disp "B=retention ratio"
 :Disp "PAYOUT=1-B"
-:Disp ""
+:Disp " "
 :Disp "G=B*ROE (sustainable"
 :Disp "  growth)"
-:Disp ""
+:Disp " "
 :Disp "USE: compare actual"
 :Disp "P/E to justified"
 :Pause
@@ -38,11 +38,11 @@
 :ClrHome
 :Disp "Q: B=0.40 K=10%"
 :Disp "G=4%"
-:Disp ""
+:Disp " "
 :Disp "P/E=(1-.40)/(.10-.04)"
 :Disp "   =0.60/0.06"
 :Disp "   =10.0"
-:Disp ""
+:Disp " "
 :Disp "ANS: justified=10x"
 :Pause
 :Stop

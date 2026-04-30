@@ -11,13 +11,13 @@
 :Lbl 2
 :ClrHome
 :Disp "V = D / K"
-:Disp ""
+:Disp " "
 :Disp "SPECIAL CASE OF DDM"
 :Disp "WITH G = 0"
-:Disp ""
+:Disp " "
 :Disp "PERPETUITY OF FIXED"
 :Disp "DIVIDEND"
-:Disp ""
+:Disp " "
 :Disp "TRAP: K AS DECIMAL"
 :Disp "(0.0775 NOT 7.75)"
 :Pause
@@ -25,10 +25,10 @@
 :Lbl 3
 :ClrHome
 :Disp "Q: D=$7 K=7.75%"
-:Disp ""
+:Disp " "
 :Disp "V = 7 / 0.0775"
 :Disp "  = $90.32"
-:Disp ""
+:Disp " "
 :Disp "ANS: C) $90.32"
 :Pause
 :Stop
