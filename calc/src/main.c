@@ -1,550 +1,114 @@
 /*
- * AICHAT v3.0 — TI-84 Plus CE AI Chat Bridge
- * On-screen QWERTY keyboard + autocomplete from course word bank.
- * Libraries: srldrvce, graphx, keypadc
+ * ZACH GPT v5.0 — TI-84 Plus CE AI chat over USB serial.
+ * Screens: Splash (character rain, waits for USB), T9 Typing on the physical
+ * 0-9 keys, Thinking, Answer (scrollable chat bubbles).
+ * Libraries: graphx, keypadc, usbdrvce, srldrvce. Protocol: "question\n" out,
+ * "answer\n" back (bridge.py on the PC). UI logic lives in logic.c.
  */
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <stdio.h>
+#include <time.h>
 
 #include <graphx.h>
 #include <keypadc.h>
 #include <srldrvce.h>
 #include <usbdrvce.h>
-#include <tice.h>
 
-/* ── Config ── */
-#define MAX_INPUT   512
-#define MAX_RESP    512
+#include "logic.h"
+
+/* ── Config ─────────────────────────────────────────────────────────── */
 #define SRL_BUF_SZ  4096
 
 #define SCREEN_W    320
 #define SCREEN_H    240
 #define FONT_H      8
 #define CHAR_W      8
-#define CHARS_PER_LINE (SCREEN_W / CHAR_W)
 
-/* Colors */
-#define COLOR_BG      0xFF
-#define COLOR_FG      0x00
-#define COLOR_PROMPT  0x10
-#define COLOR_WAIT    0x03
-#define COLOR_KEY_BG  0xDE
-#define COLOR_KEY_HL  0x10
-#define COLOR_KEY_FG  0x00
-#define COLOR_KEY_HFG 0xFF
-#define COLOR_DIVIDER 0xB5
-#define COLOR_AC_BG   0xC6   /* suggestion background - lighter blue-gray */
-#define COLOR_AC_NUM  0x10   /* suggestion number - dark blue */
+#define INPUT_COLS      37
+#define KEY_SAMPLE_MS   10
+#define KEY_LOCKOUT_MS  30
+#define FLASH_MS        140
+#define ANIM_TICK_MS    100     /* rain step; dots = 4 ticks, spinner = 3, caret = 5 */
 
-/* ── Autocomplete word bank ── */
-/* Sorted by frequency (highest first). Max 200 words. */
-#define WORDBANK_SIZE 200
-#define MAX_WORD_LEN  16
-#define MAX_SUGGESTIONS 3
+/* ── Palette (README table, indices 0-14) ───────────────────────────── */
+enum {
+    C_WHITE = 0, C_DEEP_BLUE, C_CYAN, C_ORANGE, C_NAVY, C_KEY_BG, C_DIVIDER, C_HINT,
+    C_USER_BUBBLE, C_AI_BUBBLE, C_RAIN_DIM, C_RAIN, C_RAIN_HEAD, C_TITLE_SHADOW, C_SCRIM,
+    C_COUNT
+};
+#define C_TEXT_TP 255   /* graphx default text background = transparent colour; never drawn */
 
-static const char wordbank[WORDBANK_SIZE][MAX_WORD_LEN] = {
-    "THE","WHAT","WHICH","WHEN","WHERE","HOW","THAT","THIS","WITH","FROM",
-    "DOES","HAVE","WILL","WOULD","BETWEEN","FOLLOWING","BLANK","ABOVE","BELOW","LEFT",
-    "RIGHT","AND","NOT","CAN","ARE","IS","OF","IN","FOR","TO",
-    "BY","AT","AN","ON","OR","IF","IT","AS","ALL","BUT",
-    "DO","NO","SO","UP","BE","RISK","MARKET","RETURN","BOND","PORTFOLIO",
-    "RATE","YIELD","PRICE","CAPITAL","ASSET","CAPM","DURATION","BETA","ALPHA","PREMIUM",
-    "STANDARD","DEVIATION","MATURITY","STOCK","EXCESS","DIVERSIFICATION","EFFICIENT","SHARPE",
-    "CORRELATION","COVARIANCE","EXPECTED","SYSTEMATIC","FRONTIER","ALLOCATION","IMMUNIZATION",
-    "EMH","COUPON","VARIANCE","INVESTOR","INVESTMENT","TREASURY","PASSIVE","ACTIVE",
-    "ARBITRAGE","INFLATION","DISCOUNT","LIQUIDITY","SECURITY","MODIFIED","MACAULAY","CONVEXITY",
-    "CALLABLE","SEMISTRONG","INDENTURE","SENSITIVITY","REINVESTMENT","MUNICIPAL","CORPORATE",
-    "DIVIDEND","FLOATING","SINKING","COLLATERAL","NOMINAL","EQUILIBRIUM","MOMENTUM","RANDOM",
-    "WALK","TECHNICAL","FUNDAMENTAL","PUTTABLE","CONVERTIBLE","GEOMETRIC","ARITHMETIC","KURTOSIS",
-    "ANOMALY","AVERSION","EQUITY","HYPOTHESIS","CURVE","FUND","MUTUAL","PERIOD",
-    "HOLDING","PROBABILITY","NORMAL","DISTRIBUTION","WEIGHTED","AVERAGE","HORIZON","SWAP",
-    "SPREAD","EARNINGS","LEVERAGE","DEBT","LOSS","GAINS","TAX","CREDIT",
-    "RATING","SPECULATIVE","VOLATILITY","FORECAST","ANALYSIS","MANAGEMENT","GROWTH","AGGREGATE",
-    "MULTIFACTOR","SCENARIO","COMPOUNDING","LIABILITIES","PROFIT","PRINCIPAL","BILLS","NOTES",
-    "PAR","ISSUER","SML","CAL","APT","HPR","YTM","IRR",
-    "NPV","EAR","APR","TVM","VAR","REBALANCING","NONSYSTEMATIC","REINVESTED",
-    "MANAGERS","INCOME","SHARES","PROFITABILITY","SOLVENCY","COVERAGE","TAXES","LOSSES",
-    "RISKLESS","MISPRICED","REGRESSION","INFORMATION","DEBENTURE","ACCRUED","SKEWNESS","BORROWING",
-    "RECESSION","SLOPE","CATASTROPHE","AMORTIZE","FIXED","SHORT","LONG","NEGATIVE",
-    "POSITIVE","ZERO","SMALL","LARGE","TOTAL","MEAN"
+static const uint16_t palette[C_COUNT] = {
+    gfx_RGBTo1555(0xFF, 0xFF, 0xFF),  /* WHITE */
+    gfx_RGBTo1555(0x0A, 0x1A, 0x52),  /* DEEP_BLUE */
+    gfx_RGBTo1555(0x3A, 0xE6, 0xFF),  /* CYAN */
+    gfx_RGBTo1555(0xFF, 0x8C, 0x1A),  /* ORANGE */
+    gfx_RGBTo1555(0x1A, 0x1A, 0x6B),  /* NAVY */
+    gfx_RGBTo1555(0xE3, 0xE7, 0xF5),  /* KEY_BG */
+    gfx_RGBTo1555(0xB9, 0xC0, 0xE0),  /* DIVIDER */
+    gfx_RGBTo1555(0x7A, 0x8A, 0xC0),  /* HINT */
+    gfx_RGBTo1555(0x9A, 0xE6, 0xFF),  /* USER_BUBBLE */
+    gfx_RGBTo1555(0xFF, 0xB8, 0x5A),  /* AI_BUBBLE */
+    gfx_RGBTo1555(0x14, 0x60, 0x7A),  /* RAIN_DIM */
+    gfx_RGBTo1555(0x1F, 0xA8, 0xC8),  /* RAIN */
+    gfx_RGBTo1555(0xDF, 0xFB, 0xFF),  /* RAIN_HEAD */
+    gfx_RGBTo1555(0x8C, 0x3A, 0x00),  /* TITLE_SHADOW */
+    gfx_RGBTo1555(0x0B, 0x1D, 0x5A),  /* SPLASH_SCRIM (solid; no alpha on CE) */
 };
 
-/* ── Phrase bank for phrase mode ── */
-#define MAX_PHRASE_LEN   40
-#define NUM_CATEGORIES    4
-#define MAX_PHRASES_PER_CAT 8
+/* ── Screens / keys ─────────────────────────────────────────────────── */
+enum { SCR_SPLASH, SCR_TYPING, SCR_THINKING, SCR_ANSWER };
+enum { ST_WAITING, ST_CONNECTED, ST_DISCONNECTED };
 
-static const char *cat_names[NUM_CATEGORIES] = {
-    "STARTERS", "QUALIFIERS", "RATIOS", "FINANCE"
-};
+enum { K_0, K_1, K_2, K_3, K_4, K_5, K_6, K_7, K_8, K_9,
+       K_ALPHA, K_2ND, K_DEL, K_ENTER, K_CLEAR, K_UP, K_DOWN, K_MODE, K_COUNT };
+#define KB(k)     (1UL << (k))
+#define K_DIGITS  0x3FFUL
 
-static const char phrases[NUM_CATEGORIES][MAX_PHRASES_PER_CAT][MAX_PHRASE_LEN] = {
-    /* STARTERS */
-    {
-        "WHICH OF THE FOLLOWING",
-        "A COMPANY HAS",
-        "A COMPANY",
-        "AN ANALYST",
-        "SHOULD A COMPANY",
-        "WHAT HAPPENS TO THE",
-        "HOW MUCH",
-        ""
-    },
-    /* QUALIFIERS */
-    {
-        "MOST LIKELY",
-        "LEAST LIKELY",
-        "MOST APPROPRIATE",
-        "CLOSEST TO",
-        "BEST DESCRIBES",
-        "SHOULD BE CONSIDERED",
-        "WITH RESPECT TO",
-        "IN ORDER TO"
-    },
-    /* RATIOS */
-    {
-        "CURRENT RATIO",
-        "QUICK RATIO",
-        "CASH CONVERSION CYCLE",
-        "NET PROFIT MARGIN",
-        "CURRENT ASSETS",
-        "CURRENT LIABILITIES",
-        "ACCOUNTS PAYABLE",
-        ""
-    },
-    /* FINANCE */
-    {
-        "WEIGHTED AVERAGE COST OF CAPITAL",
-        "COST OF CAPITAL",
-        "NET PRESENT VALUE",
-        "DISCOUNTED CASH FLOW",
-        "CAPITAL INVESTMENTS",
-        "CAPITAL BUDGETING",
-        "CORPORATE GOVERNANCE",
-        "FINANCIAL REPORTING QUALITY"
-    }
-};
+/* on-screen key ids: 0-9 digits, 10 ALPHA, 11 DEL */
+#define KEY_ALPHA 10
+#define KEY_DEL   11
+static const uint8_t GRID_ORDER[12] = { 7, 8, 9, 4, 5, 6, 1, 2, 3, KEY_ALPHA, 0, KEY_DEL };
 
-/* Count non-empty phrases in a category */
-static int cat_phrase_count(int cat) {
-    int count = 0;
-    for (int i = 0; i < MAX_PHRASES_PER_CAT; i++) {
-        if (phrases[cat][i][0] != '\0') count++;
-        else break;
-    }
-    return count;
-}
-
-/* ── Globals (declared early for autocomplete) ── */
+/* ── Globals ────────────────────────────────────────────────────────── */
 static srl_device_t srl;
 static bool has_device = false;
 static uint8_t srl_buf[SRL_BUF_SZ];
-static char input_buf[MAX_INPUT];
-static int input_len = 0;
-static char resp_buf[MAX_RESP];
-static int text_y = 0;
 
-/* Autocomplete state */
-static char suggestions[MAX_SUGGESTIONS][MAX_WORD_LEN];
-static int num_suggestions = 0;
+static t9_t        t9;
+static chat_t      chat;
+static rain_col_t  rain[RAIN_COLS];
+static bubble_t    bubbles[MAX_MSGS + 1];
+static wrap_t      wrap;
+static char        linebuf[INPUT_COLS + 1];
 
-/* Get the start of the current (incomplete) word being typed */
-static int get_current_word_start(void) {
-    int i = input_len - 1;
-    while (i >= 0 && input_buf[i] != ' ')
-        i--;
-    return i + 1;
+static char     resp_buf[MAX_RESP];
+static uint16_t resp_len = 0;
+static uint8_t  stale_replies = 0;
+
+static uint8_t  screen = SCR_SPLASH;
+static uint8_t  status = ST_WAITING;
+static bool     running = true;
+static bool     dirty = true;
+static uint16_t scroll = 0xFFFF;        /* 0xFFFF = "bottom", clamped at draw time */
+static uint16_t content_h = 0;
+
+static int8_t   flash_key = -1;
+static uint32_t flash_t0 = 0;
+static uint32_t t_key = 0, t_anim = 0;
+static uint16_t tick = 0;
+static uint32_t prev_keys = 0;
+static uint32_t last_edge[K_COUNT];
+
+/* ── Timebase: clock() = timer 1 @ 32768 Hz (usbdrvce owns timer 2) ─── */
+static uint32_t now_ms(void) {
+    uint32_t t = (uint32_t)clock();
+    return (t >> 15) * 1000u + (((t & 0x7FFFu) * 1000u) >> 15);
 }
 
-/* Find up to 3 suggestions matching the current word prefix */
-static void update_suggestions(void) {
-    num_suggestions = 0;
-    int word_start = get_current_word_start();
-    int prefix_len = input_len - word_start;
-
-    /* Only suggest after 2+ characters */
-    if (prefix_len < 2) return;
-
-    const char *prefix = input_buf + word_start;
-
-    for (int i = 0; i < WORDBANK_SIZE && num_suggestions < MAX_SUGGESTIONS; i++) {
-        const char *word = wordbank[i];
-        int wlen = (int)strlen(word);
-        if (wlen <= prefix_len) continue;  /* skip words same length or shorter */
-
-        /* Check prefix match */
-        bool match = true;
-        for (int j = 0; j < prefix_len; j++) {
-            if (prefix[j] != word[j]) {
-                match = false;
-                break;
-            }
-        }
-        if (match) {
-            strncpy(suggestions[num_suggestions], word, MAX_WORD_LEN - 1);
-            suggestions[num_suggestions][MAX_WORD_LEN - 1] = '\0';
-            num_suggestions++;
-        }
-    }
-}
-
-/* Accept a suggestion: replace current partial word with full word + space */
-static void accept_suggestion(int idx) {
-    if (idx < 0 || idx >= num_suggestions) return;
-
-    int word_start = get_current_word_start();
-    const char *word = suggestions[idx];
-    int wlen = (int)strlen(word);
-
-    /* Check if it fits */
-    if (word_start + wlen + 1 >= MAX_INPUT) return;
-
-    /* Replace from word_start */
-    memcpy(input_buf + word_start, word, wlen);
-    input_buf[word_start + wlen] = ' ';
-    input_len = word_start + wlen + 1;
-    input_buf[input_len] = '\0';
-    num_suggestions = 0;
-}
-
-/* ── Keyboard layout ── */
-#define KB_TOP_Y      112
-#define KB_KEY_W      28
-#define KB_KEY_H      22
-#define KB_PAD        2
-#define KB_ROWS       5
-#define SUGGEST_Y     (KB_TOP_Y - 14)
-
-#define NUM_KEY_W     24    /* narrower keys for 12-char number row */
-#define ROW_NUM_LEN   12
-#define ROW0_LEN  10
-#define ROW1_LEN  9
-#define ROW2_LEN  7
-#define ROW3_LEN  3
-
-static const char row_num_chars[] = "1234567890%.";
-static const char row0_chars[] = "QWERTYUIOP";
-static const char row1_chars[] = "ASDFGHJKL";
-static const char row2_chars[] = "ZXCVBNM";
-static const int row_lens[] = {ROW_NUM_LEN, ROW0_LEN, ROW1_LEN, ROW2_LEN, ROW3_LEN};
-
-static int kb_row = 0;
-static int kb_col = 0;
-
-static int row_x_offset(int row) {
-    switch (row) {
-        case 0: return (SCREEN_W - ROW_NUM_LEN * (NUM_KEY_W + KB_PAD)) / 2;
-        case 1: return (SCREEN_W - ROW0_LEN * (KB_KEY_W + KB_PAD)) / 2;
-        case 2: return (SCREEN_W - ROW1_LEN * (KB_KEY_W + KB_PAD)) / 2;
-        case 3: return (SCREEN_W - ROW2_LEN * (KB_KEY_W + KB_PAD)) / 2;
-        case 4: return 4;
-        default: return 0;
-    }
-}
-
-/* (globals declared above with autocomplete) */
-
-/* ── Draw helpers ── */
-static void print_top_line(const char *text, uint8_t color) {
-    if (text_y >= KB_TOP_Y - FONT_H) return;
-    gfx_SetTextFGColor(color);
-    gfx_PrintStringXY(text, 0, text_y);
-    text_y += FONT_H;
-}
-
-static void print_top_wrapped(const char *text, uint8_t color, int max_y) {
-    char line[CHARS_PER_LINE + 1];
-    int len = (int)strlen(text);
-    int pos = 0;
-    gfx_SetTextFGColor(color);
-    while (pos < len && text_y < max_y) {
-        int chunk = len - pos;
-        if (chunk > CHARS_PER_LINE) chunk = CHARS_PER_LINE;
-        memcpy(line, text + pos, chunk);
-        line[chunk] = '\0';
-        gfx_PrintStringXY(line, 0, text_y);
-        text_y += FONT_H;
-        pos += chunk;
-    }
-}
-
-static void draw_input_line(void) {
-    char display[CHARS_PER_LINE + 1];
-    int show_len;
-
-    gfx_SetColor(COLOR_BG);
-    gfx_FillRectangle_NoClip(0, 0, SCREEN_W, FONT_H * 2);
-
-    gfx_SetTextFGColor(COLOR_PROMPT);
-    gfx_PrintStringXY("> ", 0, 0);
-
-    show_len = input_len;
-    if (show_len > CHARS_PER_LINE - 3) show_len = CHARS_PER_LINE - 3;
-    memcpy(display, input_buf + (input_len - show_len), show_len);
-    display[show_len] = '_';
-    display[show_len + 1] = '\0';
-
-    gfx_SetTextFGColor(COLOR_FG);
-    gfx_PrintStringXY(display, CHAR_W * 2, 0);
-}
-
-/* Draw suggestion bar */
-static void draw_suggestions(void) {
-    /* Clear suggestion area */
-    gfx_SetColor(COLOR_BG);
-    gfx_FillRectangle_NoClip(0, SUGGEST_Y - 2, SCREEN_W, 14);
-
-    if (num_suggestions == 0) return;
-
-    int x = 4;
-    char label[MAX_WORD_LEN + 4];
-
-    for (int i = 0; i < num_suggestions; i++) {
-        int wlen = (int)strlen(suggestions[i]);
-        int box_w = (wlen + 3) * CHAR_W + 4;  /* "[N]WORD" + padding */
-
-        /* Background */
-        gfx_SetColor(COLOR_AC_BG);
-        gfx_FillRectangle_NoClip(x, SUGGEST_Y, box_w, 12);
-
-        /* "[N]" */
-        snprintf(label, sizeof(label), "[%d]%s", i + 1, suggestions[i]);
-        gfx_SetTextFGColor(COLOR_AC_NUM);
-        gfx_PrintStringXY(label, x + 2, SUGGEST_Y + 2);
-
-        x += box_w + 6;
-        if (x > SCREEN_W - 40) break;
-    }
-}
-
-/* ── On-screen keyboard ── */
-static void draw_keyboard(void) {
-    char ch_str[2] = {0, 0};
-
-    gfx_SetColor(COLOR_DIVIDER);
-    gfx_HorizLine_NoClip(0, KB_TOP_Y - 2, SCREEN_W);
-
-    /* Number row (row 0) — narrower keys */
-    {
-        int x_off = row_x_offset(0);
-        int y = KB_TOP_Y;
-        for (int c = 0; c < ROW_NUM_LEN; c++) {
-            int x = x_off + c * (NUM_KEY_W + KB_PAD);
-            bool highlighted = (kb_row == 0 && c == kb_col);
-
-            gfx_SetColor(highlighted ? COLOR_KEY_HL : COLOR_KEY_BG);
-            gfx_FillRectangle_NoClip(x, y, NUM_KEY_W, KB_KEY_H);
-
-            ch_str[0] = row_num_chars[c];
-            int tx = x + (NUM_KEY_W - CHAR_W) / 2;
-            int ty = y + (KB_KEY_H - FONT_H) / 2;
-            gfx_SetTextFGColor(highlighted ? COLOR_KEY_HFG : COLOR_KEY_FG);
-            gfx_PrintStringXY(ch_str, tx, ty);
-        }
-    }
-
-    /* Letter rows (rows 1-3) */
-    for (int r = 1; r <= 3; r++) {
-        int x_off = row_x_offset(r);
-        int y = KB_TOP_Y + r * (KB_KEY_H + KB_PAD);
-        int len = row_lens[r];
-        const char *chars;
-
-        switch (r) {
-            case 1: chars = row0_chars; break;
-            case 2: chars = row1_chars; break;
-            default: chars = row2_chars; break;
-        }
-
-        for (int c = 0; c < len; c++) {
-            int x = x_off + c * (KB_KEY_W + KB_PAD);
-            bool highlighted = (r == kb_row && c == kb_col);
-
-            gfx_SetColor(highlighted ? COLOR_KEY_HL : COLOR_KEY_BG);
-            gfx_FillRectangle_NoClip(x, y, KB_KEY_W, KB_KEY_H);
-
-            ch_str[0] = chars[c];
-            int tx = x + (KB_KEY_W - CHAR_W) / 2;
-            int ty = y + (KB_KEY_H - FONT_H) / 2;
-            gfx_SetTextFGColor(highlighted ? COLOR_KEY_HFG : COLOR_KEY_FG);
-            gfx_PrintStringXY(ch_str, tx, ty);
-        }
-    }
-
-    /* Control row (row 4) */
-    {
-        int y = KB_TOP_Y + 4 * (KB_KEY_H + KB_PAD);
-        int space_w = 160, del_w = 60, send_w = 70, gap = 8;
-        int x = 4;
-
-        bool hl = (kb_row == 4 && kb_col == 0);
-        gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
-        gfx_FillRectangle_NoClip(x, y, space_w, KB_KEY_H);
-        gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
-        gfx_PrintStringXY("SPACE", x + (space_w - 5 * CHAR_W) / 2, y + (KB_KEY_H - FONT_H) / 2);
-        x += space_w + gap;
-
-        hl = (kb_row == 4 && kb_col == 1);
-        gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
-        gfx_FillRectangle_NoClip(x, y, del_w, KB_KEY_H);
-        gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
-        gfx_PrintStringXY("DEL", x + (del_w - 3 * CHAR_W) / 2, y + (KB_KEY_H - FONT_H) / 2);
-        x += del_w + gap;
-
-        hl = (kb_row == 4 && kb_col == 2);
-        gfx_SetColor(hl ? COLOR_KEY_HL : COLOR_KEY_BG);
-        gfx_FillRectangle_NoClip(x, y, send_w, KB_KEY_H);
-        gfx_SetTextFGColor(hl ? COLOR_KEY_HFG : COLOR_KEY_FG);
-        gfx_PrintStringXY("SEND", x + (send_w - 4 * CHAR_W) / 2, y + (KB_KEY_H - FONT_H) / 2);
-    }
-}
-
-/* ── Phrase mode state ── */
-static bool phrase_mode = false;
-static int phrase_cat = 0;      /* current category tab (0-3) */
-static int phrase_sel = 0;      /* selected phrase within category */
-
-/* Draw the phrase mode overlay (full screen) */
-static void draw_phrase_mode(void) {
-    gfx_FillScreen(COLOR_BG);
-
-    /* Title bar */
-    gfx_SetColor(COLOR_KEY_HL);
-    gfx_FillRectangle_NoClip(0, 0, SCREEN_W, 14);
-    gfx_SetTextFGColor(COLOR_KEY_HFG);
-    gfx_PrintStringXY("PHRASE MODE  [MODE=cancel]", 4, 3);
-
-    /* Draw input preview (line 2) */
-    gfx_SetColor(COLOR_BG);
-    gfx_SetTextFGColor(COLOR_PROMPT);
-    gfx_PrintStringXY("> ", 0, 18);
-    {
-        char preview[CHARS_PER_LINE - 1];
-        int show = input_len;
-        if (show > CHARS_PER_LINE - 3) show = CHARS_PER_LINE - 3;
-        memcpy(preview, input_buf + (input_len - show), show);
-        preview[show] = '_';
-        preview[show + 1] = '\0';
-        gfx_SetTextFGColor(COLOR_FG);
-        gfx_PrintStringXY(preview, CHAR_W * 2, 18);
-    }
-
-    /* Tab bar at y=32 */
-    {
-        int tab_w = SCREEN_W / NUM_CATEGORIES;
-        for (int i = 0; i < NUM_CATEGORIES; i++) {
-            int x = i * tab_w;
-            bool active = (i == phrase_cat);
-            gfx_SetColor(active ? COLOR_KEY_HL : COLOR_KEY_BG);
-            gfx_FillRectangle_NoClip(x, 32, tab_w - 1, 16);
-            gfx_SetTextFGColor(active ? COLOR_KEY_HFG : COLOR_KEY_FG);
-            /* Center the tab name */
-            int name_len = (int)strlen(cat_names[i]);
-            int tx = x + (tab_w - name_len * CHAR_W) / 2;
-            gfx_PrintStringXY(cat_names[i], tx, 36);
-        }
-    }
-
-    /* Divider line */
-    gfx_SetColor(COLOR_DIVIDER);
-    gfx_HorizLine_NoClip(0, 50, SCREEN_W);
-
-    /* Phrase list starting at y=54 */
-    int count = cat_phrase_count(phrase_cat);
-    for (int i = 0; i < count; i++) {
-        int y = 54 + i * 20;
-        if (y + 18 > SCREEN_H) break;  /* don't draw off screen */
-
-        bool selected = (i == phrase_sel);
-
-        /* Highlight bar for selected phrase */
-        if (selected) {
-            gfx_SetColor(COLOR_KEY_HL);
-            gfx_FillRectangle_NoClip(2, y, SCREEN_W - 4, 18);
-        }
-
-        /* Phrase text */
-        gfx_SetTextFGColor(selected ? COLOR_KEY_HFG : COLOR_FG);
-        gfx_PrintStringXY(phrases[phrase_cat][i], 8, y + 5);
-    }
-
-    /* Bottom hint */
-    gfx_SetTextFGColor(COLOR_WAIT);
-    gfx_PrintStringXY("L/R=tab  U/D=select  ENTER=insert", 4, SCREEN_H - 12);
-}
-
-/* Handle input while in phrase mode.
- * Returns: 0 = still in phrase mode, 1 = phrase inserted (exit), -1 = cancelled (exit) */
-static int handle_phrase_input(void) {
-    static bool prev_up = false, prev_down = false;
-    static bool prev_left = false, prev_right = false;
-    static bool prev_enter = false, prev_mode = false;
-
-    kb_Scan();
-
-    bool up    = kb_IsDown(kb_KeyUp);
-    bool down  = kb_IsDown(kb_KeyDown);
-    bool left  = kb_IsDown(kb_KeyLeft);
-    bool right = kb_IsDown(kb_KeyRight);
-    bool enter = kb_IsDown(kb_KeyEnter);
-    bool mode  = (kb_Data[1] & kb_Mode) != 0;
-
-    /* MODE key cancels phrase mode */
-    if (mode && !prev_mode) {
-        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_mode = mode;
-        return -1;
-    }
-
-    /* Left/Right: switch category tabs */
-    if (left && !prev_left) {
-        phrase_cat--;
-        if (phrase_cat < 0) phrase_cat = NUM_CATEGORIES - 1;
-        phrase_sel = 0;
-    }
-    if (right && !prev_right) {
-        phrase_cat++;
-        if (phrase_cat >= NUM_CATEGORIES) phrase_cat = 0;
-        phrase_sel = 0;
-    }
-
-    /* Up/Down: navigate phrases within category */
-    if (up && !prev_up) {
-        phrase_sel--;
-        if (phrase_sel < 0) phrase_sel = cat_phrase_count(phrase_cat) - 1;
-    }
-    if (down && !prev_down) {
-        phrase_sel++;
-        if (phrase_sel >= cat_phrase_count(phrase_cat)) phrase_sel = 0;
-    }
-
-    /* ENTER: insert selected phrase into input buffer */
-    if (enter && !prev_enter) {
-        const char *phrase = phrases[phrase_cat][phrase_sel];
-        int plen = (int)strlen(phrase);
-
-        /* Check if it fits (phrase + space) */
-        if (input_len + plen + 1 < MAX_INPUT) {
-            memcpy(input_buf + input_len, phrase, plen);
-            input_len += plen;
-            input_buf[input_len++] = ' ';
-            input_buf[input_len] = '\0';
-        }
-
-        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_mode = mode;
-        return 1;
-    }
-
-    prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-    prev_enter = enter; prev_mode = mode;
-    return 0;
-}
-
-/* ── USB event handler ── */
+/* ── USB event handler (unchanged from v4) ──────────────────────────── */
 static usb_error_t handle_usb_event(usb_event_t event, void *event_data,
                                      usb_callback_data_t *callback_data __attribute__((unused))) {
     usb_error_t err;
@@ -579,27 +143,7 @@ static usb_error_t handle_usb_event(usb_event_t event, void *event_data,
     return USB_SUCCESS;
 }
 
-/* ── Serial I/O ── */
-static bool read_line(char *buf, int max_len) {
-    int pos = 0;
-    memset(buf, 0, max_len);
-    while (pos < max_len - 1) {
-        kb_Scan();
-        if (kb_IsDown(kb_KeyClear)) return false;
-        usb_HandleEvents();
-        if (!has_device) return false;
-        char tmp[64];
-        int n = srl_Read(&srl, tmp, sizeof tmp);
-        if (n <= 0) continue;
-        for (int i = 0; i < n && pos < max_len - 1; i++) {
-            if (tmp[i] == '\n') { buf[pos] = '\0'; return true; }
-            if (tmp[i] >= 0x20) { buf[pos++] = tmp[i]; }
-        }
-    }
-    buf[pos] = '\0';
-    return true;
-}
-
+/* ── Serial TX (unchanged from v4) ──────────────────────────────────── */
 static bool send_query(const char *text) {
     int len = (int)strlen(text);
     int sent = 0;
@@ -622,258 +166,479 @@ static bool send_query(const char *text) {
     return true;
 }
 
-/* ── Keyboard input ── */
-static void clamp_col(void) {
-    if (kb_col >= row_lens[kb_row]) kb_col = row_lens[kb_row] - 1;
-    if (kb_col < 0) kb_col = 0;
+/* ── Serial RX: non-blocking, pumped in every state ─────────────────── */
+static void poll_serial(void) {
+    char tmp[64];
+    int n, i;
+    if (!has_device) return;
+    n = srl_Read(&srl, tmp, sizeof tmp);
+    if (n <= 0) return;
+    for (i = 0; i < n; i++) {
+        char c = tmp[i];
+        if (c == '\n') {
+            if (stale_replies) {
+                stale_replies--;                     /* reply to a cancelled question */
+            } else if (screen == SCR_THINKING) {
+                chat_push(&chat, ROLE_AI, resp_buf);
+                screen = SCR_ANSWER;
+                scroll = 0xFFFF;
+            }
+            resp_len = 0;
+            resp_buf[0] = '\0';
+            dirty = true;
+        } else if (c >= 0x20 && resp_len < MAX_RESP - 1) {
+            resp_buf[resp_len++] = c;
+            resp_buf[resp_len] = '\0';
+        }
+    }
 }
 
-/* Returns: 0 = still typing, 1 = send, -1 = exit */
-static int handle_keyboard_input(void) {
-    static bool prev_up = false, prev_down = false;
-    static bool prev_left = false, prev_right = false;
-    static bool prev_enter = false, prev_clear = false;
-    static bool prev_del = false, prev_zero = false;
-    static bool prev_1 = false, prev_2 = false, prev_3 = false;
-    static bool prev_mode = false;
-
+/* ── Keypad ─────────────────────────────────────────────────────────── */
+static uint32_t read_keys(void) {
+    uint32_t m = 0;
     kb_Scan();
+    if (kb_Data[3] & kb_0)     m |= KB(K_0);
+    if (kb_Data[3] & kb_1)     m |= KB(K_1);
+    if (kb_Data[4] & kb_2)     m |= KB(K_2);
+    if (kb_Data[5] & kb_3)     m |= KB(K_3);
+    if (kb_Data[3] & kb_4)     m |= KB(K_4);
+    if (kb_Data[4] & kb_5)     m |= KB(K_5);
+    if (kb_Data[5] & kb_6)     m |= KB(K_6);
+    if (kb_Data[3] & kb_7)     m |= KB(K_7);
+    if (kb_Data[4] & kb_8)     m |= KB(K_8);
+    if (kb_Data[5] & kb_9)     m |= KB(K_9);
+    if (kb_Data[2] & kb_Alpha) m |= KB(K_ALPHA);
+    if (kb_Data[1] & kb_2nd)   m |= KB(K_2ND);
+    if (kb_Data[1] & kb_Del)   m |= KB(K_DEL);
+    if (kb_Data[1] & kb_Mode)  m |= KB(K_MODE);
+    if (kb_Data[6] & kb_Enter) m |= KB(K_ENTER);
+    if (kb_Data[6] & kb_Clear) m |= KB(K_CLEAR);
+    if (kb_Data[7] & kb_Up)    m |= KB(K_UP);
+    if (kb_Data[7] & kb_Down)  m |= KB(K_DOWN);
+    return m;
+}
 
-    bool up    = kb_IsDown(kb_KeyUp);
-    bool down  = kb_IsDown(kb_KeyDown);
-    bool left  = kb_IsDown(kb_KeyLeft);
-    bool right = kb_IsDown(kb_KeyRight);
-    bool enter = kb_IsDown(kb_KeyEnter);
-    bool clear = kb_IsDown(kb_KeyClear);
-    bool del   = kb_IsDown(kb_KeyDel);
-    bool zero  = (kb_Data[3] & kb_0) != 0;
-    bool key1  = (kb_Data[3] & kb_1) != 0;
-    bool key2  = (kb_Data[4] & kb_2) != 0;
-    bool key3  = (kb_Data[5] & kb_3) != 0;
-    bool mode  = (kb_Data[1] & kb_Mode) != 0;
+/* Edge detection (key-down only, no auto-repeat) + per-key bounce lockout. */
+static uint32_t key_edges(uint32_t now) {
+    uint32_t cur = read_keys();
+    uint32_t pressed = cur & ~prev_keys;
+    uint8_t k;
+    prev_keys = cur;
+    for (k = 0; k < K_COUNT && pressed; k++) {
+        if (!(pressed & KB(k))) continue;
+        if ((uint32_t)(now - last_edge[k]) < KEY_LOCKOUT_MS) pressed &= ~KB(k);
+        else last_edge[k] = now;
+    }
+    return pressed;
+}
 
-    /* Autocomplete: press 1, 2, or 3 to accept suggestion */
-    if (key1 && !prev_1 && num_suggestions >= 1) {
-        accept_suggestion(0);
-        prev_1 = key1; prev_2 = key2; prev_3 = key3;
-        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
-        return 0;
-    }
-    if (key2 && !prev_2 && num_suggestions >= 2) {
-        accept_suggestion(1);
-        prev_1 = key1; prev_2 = key2; prev_3 = key3;
-        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
-        return 0;
-    }
-    if (key3 && !prev_3 && num_suggestions >= 3) {
-        accept_suggestion(2);
-        prev_1 = key1; prev_2 = key2; prev_3 = key3;
-        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
-        return 0;
-    }
+/* ── Drawing helpers ────────────────────────────────────────────────── */
+static void rect(int x, int y, int w, int h, uint8_t color) {
+    gfx_SetColor(color);
+    gfx_FillRectangle_NoClip((uint24_t)x, (uint8_t)y, (uint24_t)w, (uint8_t)h);
+}
 
-    /* MODE key: enter phrase mode */
-    if (mode && !prev_mode) {
-        phrase_mode = true;
-        phrase_cat = 0;
-        phrase_sel = 0;
-        prev_mode = mode;
-        prev_1 = key1; prev_2 = key2; prev_3 = key3;
-        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
-        return 0;
-    }
+static void text_at(const char *s, int x, int y, uint8_t color) {
+    gfx_SetTextFGColor(color);
+    gfx_PrintStringXY(s, x, y);
+}
 
-    /* Arrow navigation */
-    if (up && !prev_up) { kb_row--; if (kb_row < 0) kb_row = KB_ROWS - 1; clamp_col(); }
-    if (down && !prev_down) { kb_row++; if (kb_row >= KB_ROWS) kb_row = 0; clamp_col(); }
-    if (left && !prev_left) {
-        kb_col--;
-        if (kb_col < 0) { kb_row--; if (kb_row < 0) kb_row = KB_ROWS - 1; kb_col = row_lens[kb_row] - 1; }
-    }
-    if (right && !prev_right) {
-        kb_col++;
-        if (kb_col >= row_lens[kb_row]) { kb_row++; if (kb_row >= KB_ROWS) kb_row = 0; kb_col = 0; }
-    }
+static void text_centered(const char *s, int y, uint8_t color, uint8_t scale) {
+    int w = (int)strlen(s) * CHAR_W * scale;
+    text_at(s, (SCREEN_W - w) / 2, y, color);
+}
 
-    if (clear && !prev_clear) {
-        prev_1 = key1; prev_2 = key2; prev_3 = key3;
-        prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-        prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
-        return -1;
-    }
+static void char_at(char c, int x, int y, uint8_t color) {
+    gfx_SetTextFGColor(color);
+    gfx_SetTextXY(x, y);
+    gfx_PrintChar(c);
+}
 
-    if (del && !prev_del) {
-        if (input_len > 0) { input_len--; input_buf[input_len] = '\0'; }
-    }
+static void draw_header(const char *badge) {
+    int bw = (int)strlen(badge) * CHAR_W + 8;
+    int bx = 314 - bw;
+    rect(0, 0, SCREEN_W, 20, C_ORANGE);
+    text_at("ZACH GPT", 6, 6, C_NAVY);
+    rect(bx, 4, bw, 12, C_NAVY);
+    text_at(badge, bx + 4, 6, C_ORANGE);
+}
 
-    if (zero && !prev_zero) {
-        if (input_len < MAX_INPUT - 1) { input_buf[input_len++] = ' '; input_buf[input_len] = '\0'; }
-    }
+/* ── Splash ─────────────────────────────────────────────────────────── */
+#define RAIN_X_STEP (SCREEN_W / RAIN_COLS)
 
-    if (enter && !prev_enter) {
-        if (kb_row == 4) {
-            if (kb_col == 0) {
-                if (input_len < MAX_INPUT - 1) { input_buf[input_len++] = ' '; input_buf[input_len] = '\0'; }
-            } else if (kb_col == 1) {
-                if (input_len > 0) { input_len--; input_buf[input_len] = '\0'; }
-            } else if (kb_col == 2) {
-                prev_1 = key1; prev_2 = key2; prev_3 = key3;
-                prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-                prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
-                return 1;
-            }
-        } else {
-            char c;
-            switch (kb_row) {
-                case 0: c = row_num_chars[kb_col]; break;
-                case 1: c = row0_chars[kb_col]; break;
-                case 2: c = row1_chars[kb_col]; break;
-                case 3: c = row2_chars[kb_col]; break;
-                default: c = 0; break;
-            }
-            if (c != 0 && input_len < MAX_INPUT - 1) {
-                input_buf[input_len++] = c;
-                input_buf[input_len] = '\0';
-            }
+static void draw_splash(void) {
+    char col[RAIN_LEN];
+    char line[40];
+    uint8_t i, j, dots, k;
+    const char *base, *hint;
+
+    gfx_FillScreen(C_DEEP_BLUE);
+
+    /* Rain: only the rows not hidden by the scrim (76-163) or the bottom panel (206+). */
+    for (i = 0; i < RAIN_COLS; i++) {
+        const rain_col_t *c = &rain[i];
+        uint8_t body = c->dim ? C_RAIN_DIM : C_RAIN;
+        uint8_t head = c->dim ? C_RAIN : C_RAIN_HEAD;
+        int x = i * RAIN_X_STEP;
+        rain_chars(c, col);
+        for (j = 0; j < RAIN_LEN; j++) {
+            uint8_t r = (uint8_t)((j + c->pos) % RAIN_LEN);
+            if (r > 25 || (r >= 10 && r <= 19)) continue;
+            char_at(col[j], x, r * FONT_H, j < 2 ? head : body);
         }
     }
 
-    prev_1 = key1; prev_2 = key2; prev_3 = key3;
-    prev_up = up; prev_down = down; prev_left = left; prev_right = right;
-    prev_enter = enter; prev_clear = clear; prev_del = del; prev_zero = zero; prev_mode = mode;
-    return 0;
+    /* Scrim + title with drop shadow (scale 4 = 32 px; closest to the 36 px design). */
+    rect(0, 76, SCREEN_W, 88, C_SCRIM);
+    gfx_SetTextScale(4, 4);
+    text_at("ZACH GPT", 36, 100, C_TITLE_SHADOW);
+    text_at("ZACH GPT", 32, 96, C_ORANGE);
+    gfx_SetTextScale(1, 1);
+
+    /* Subtitle; the middle dot is not in the 8x8 font, so draw it as a 2x2 block. */
+    text_centered("AI ON YOUR TI-84     v5.0", 140, C_CYAN, 1);
+    rect(207, 143, 2, 2, C_CYAN);
+
+    /* Bottom panel: status + hint. */
+    rect(0, 206, SCREEN_W, 34, C_DEEP_BLUE);
+    if (status == ST_CONNECTED) {
+        base = "USB CONNECTED";
+        hint = "press ENTER to start";
+        dots = 0;
+    } else if (status == ST_DISCONNECTED) {
+        base = "USB DISCONNECTED";
+        hint = "reconnect cable and wait";
+        dots = (uint8_t)((tick / 4) % 4);
+    } else {
+        base = "WAITING FOR USB CONNECTION";
+        hint = "run bridge.py on your PC";
+        dots = (uint8_t)((tick / 4) % 4);
+    }
+    k = (uint8_t)strlen(base);
+    memcpy(line, base, k);
+    for (j = 0; j < dots; j++) line[k++] = '.';
+    line[k] = '\0';
+    text_centered(line, 214, C_WHITE, 1);
+    text_centered(hint, 228, C_HINT, 1);
 }
 
-/* ── Main ── */
+/* ── Typing ─────────────────────────────────────────────────────────── */
+static void draw_key(uint8_t key, int x, int y) {
+    bool hl = (key <= 9 && t9.pend_key == (int8_t)key) || flash_key == (int8_t)key;
+    uint8_t fg = hl ? C_WHITE : C_NAVY;
+    char d[2];
+
+    rect(x, y, 100, 32, hl ? C_ORANGE : C_KEY_BG);
+
+    if (key == KEY_ALPHA) {
+        text_at(t9.num_mode ? "ALPHA ABC" : "ALPHA 123", x + 6, y + 12, fg);
+        return;
+    }
+    if (key == KEY_DEL) {
+        text_at("DEL BACK", x + 6, y + 12, fg);
+        return;
+    }
+
+    d[0] = (char)('0' + key);
+    d[1] = '\0';
+    gfx_SetTextScale(2, 2);
+    text_at(d, x + 6, y + 8, fg);
+    gfx_SetTextScale(1, 1);
+
+    if (key == 0 && !t9.num_mode) {
+        text_at("SPACE", x + 34, y + 12, fg);
+    } else {
+        const char *ls = t9_letters(&t9, key);
+        uint8_t j;
+        for (j = 0; ls[j]; j++) {
+            int cx = x + 34 + j * 10;
+            bool on = hl && t9.pend_key == (int8_t)key && j == t9.pend_idx;
+            if (on) rect(cx, y + 12, 9, 10, C_NAVY);
+            char_at(ls[j], cx, y + 13, on ? C_ORANGE : fg);
+        }
+    }
+}
+
+static void draw_typing(void) {
+    uint8_t i;
+    int cx;
+
+    gfx_FillScreen(C_WHITE);
+    draw_header(t9.num_mode ? "123" : "ABC");
+
+    /* Cycle strip (y 26). */
+    if (t9.pend_key >= 0) {
+        const char *ls = t9_letters(&t9, (uint8_t)t9.pend_key);
+        uint8_t n = (uint8_t)strlen(ls);
+        int x0 = (SCREEN_W - (n * 16 - 4)) / 2;
+        for (i = 0; i < n; i++) {
+            bool on = (i == t9.pend_idx);
+            int x = x0 + i * 16;
+            rect(x, 26, 12, 12, on ? C_ORANGE : C_KEY_BG);
+            char_at(ls[i], x + 2, 28, on ? C_WHITE : C_NAVY);
+        }
+    } else {
+        text_centered(t9.num_mode ? "TAP TWICE FOR SYMBOL" : "TAP KEY TO CYCLE LETTERS", 28, C_HINT, 1);
+    }
+
+    /* Prompt + input (2 lines, bottom-anchored, 37 cols, word-wrapped). */
+    text_at(">", 6, 46, C_ORANGE);
+    wrap_text(t9.text, t9.len, INPUT_COLS, t9.pend_key >= 0 ? 2 : 1, &wrap);
+    for (i = 0; i < wrap.count; i++) {
+        int back = wrap.cursor_line - i;          /* lines above the cursor line */
+        if (back > 1) continue;                    /* only the last two lines are visible */
+        memcpy(linebuf, t9.text + wrap.start[i], wrap.len[i]);
+        linebuf[wrap.len[i]] = '\0';
+        text_at(linebuf, 18, 62 - back * 10, C_NAVY);
+    }
+    cx = 18 + wrap.cursor_col * CHAR_W;
+    if (t9.pend_key >= 0) {
+        char p[2];
+        p[0] = t9_pending_char(&t9);
+        p[1] = '\0';
+        rect(cx, 58, 14, 16, C_ORANGE);
+        gfx_SetTextScale(2, 2);
+        text_at(p, cx + 1, 58, C_WHITE);
+        gfx_SetTextScale(1, 1);
+    } else if ((tick % 10) < 5) {
+        rect(cx, 61, 8, 10, C_NAVY);               /* caret, 1 s blink */
+    }
+
+    gfx_SetColor(C_DIVIDER);
+    gfx_HorizLine_NoClip(0, 74, SCREEN_W);
+
+    /* Key grid mirrors the physical keypad: 7 8 9 / 4 5 6 / 1 2 3 / ALPHA 0 DEL. */
+    for (i = 0; i < 12; i++)
+        draw_key(GRID_ORDER[i], 6 + (i % 3) * 104, 80 + (i / 3) * 36);
+
+    text_centered(t9.num_mode ? "ENTER=send DEL=back ALPHA=ABC 2nd=exit"
+                              : "ENTER=send DEL=back ALPHA=123 2nd=exit", 230, C_HINT, 1);
+}
+
+/* ── Thinking / Answer ──────────────────────────────────────────────── */
+static void draw_spinner(int x, int y, uint8_t bg) {
+    uint8_t step = (uint8_t)((tick / 3) % 4);
+    gfx_SetColor(C_NAVY);
+    gfx_FillRectangle(x, y, 8, 8);
+    gfx_SetColor(bg);
+    gfx_FillRectangle(x + ((step == 1 || step == 2) ? 5 : 0),
+                      y + ((step == 2 || step == 3) ? 5 : 0), 3, 3);
+}
+
+static void draw_chat(bool thinking) {
+    uint8_t n, i, ty, th;
+    uint16_t maxs;
+
+    gfx_FillScreen(C_WHITE);
+    draw_header("USB OK");
+
+    content_h = chat_layout(&chat, thinking, bubbles, &n);
+    maxs = scroll_max(content_h, CHAT_VIEW_H);
+    if (scroll > maxs) scroll = maxs;
+
+    /* Viewport y 28-224, x 0-312: clipped drawing only here (clipped text ignores scale). */
+    gfx_SetClipRegion(0, 28, 312, 224);
+    gfx_SetTextConfig(gfx_text_clip);
+    for (i = 0; i < n; i++) {
+        const bubble_t *b = &bubbles[i];
+        int by = 28 + (int)b->y - (int)scroll;
+        uint8_t bg = (b->role == ROLE_USER) ? C_USER_BUBBLE : C_AI_BUBBLE;
+        if (by + (int)b->h <= 28 || by >= 224) continue;
+        gfx_SetColor(bg);
+        gfx_FillRectangle(b->x, by, b->w, b->h);
+        if (b->cols == 0) {                        /* THINKING pill */
+            draw_spinner(b->x + 6, by + 7, bg);
+            text_at("THINKING...", b->x + 22, by + 7, C_NAVY);
+        } else {
+            const msg_t *m = chat_get(&chat, i);
+            uint8_t l;
+            wrap_text(m->text, (uint16_t)strlen(m->text), b->cols, 0, &wrap);
+            for (l = 0; l < wrap.count; l++) {
+                memcpy(linebuf, m->text + wrap.start[l], wrap.len[l]);
+                linebuf[wrap.len[l]] = '\0';
+                text_at(linebuf, b->x + 6, by + 7 + l * 10, C_NAVY);
+            }
+        }
+    }
+    gfx_SetTextConfig(gfx_text_noclip);
+    gfx_SetClipRegion(0, 0, SCREEN_W, SCREEN_H);
+
+    /* Scrollbar. */
+    rect(312, 28, 4, CHAT_VIEW_H, C_KEY_BG);
+    scroll_thumb(content_h, CHAT_VIEW_H, scroll, 28, &ty, &th);
+    rect(312, ty, 4, th, C_ORANGE);
+
+    text_centered(thinking ? "CLEAR=cancel" : "UP/DOWN=scroll ENTER=new CLEAR=exit", 230, C_HINT, 1);
+}
+
+static void draw_current(void) {
+    switch (screen) {
+        case SCR_SPLASH:   draw_splash(); break;
+        case SCR_TYPING:   draw_typing(); break;
+        case SCR_THINKING: draw_chat(true); break;
+        default:           draw_chat(false); break;
+    }
+}
+
+/* ── State transitions ──────────────────────────────────────────────── */
+static void enter_splash(uint8_t new_status) {
+    screen = SCR_SPLASH;
+    status = new_status;
+    chat_init(&chat);
+    t9_set_text(&t9, "");
+    stale_replies = 0;
+    resp_len = 0;
+    resp_buf[0] = '\0';
+    flash_key = -1;
+    dirty = true;
+}
+
+static void enter_typing(void) {
+    screen = SCR_TYPING;
+    t9_set_text(&t9, "");
+    flash_key = -1;
+    dirty = true;
+}
+
+static void flash(uint8_t key, uint32_t now) {
+    flash_key = (int8_t)key;
+    flash_t0 = now;
+}
+
+static void handle_keys(uint32_t p, uint32_t now) {
+    uint8_t d;
+    switch (screen) {
+    case SCR_SPLASH:
+        if (p & KB(K_CLEAR)) { running = false; return; }
+        if (status == ST_CONNECTED && (p & (K_DIGITS | KB(K_ENTER) | KB(K_ALPHA))))
+            enter_typing();
+        return;
+
+    case SCR_TYPING:
+        for (d = 0; d <= 9; d++)
+            if (p & KB(d)) { t9_digit(&t9, d, now); flash(d, now); }
+        if (p & KB(K_ALPHA)) { t9_alpha(&t9); flash(KEY_ALPHA, now); }
+        if (p & KB(K_DEL))   { t9_del(&t9);   flash(KEY_DEL, now); }
+        if (p & KB(K_ENTER)) {
+            if (t9_enter(&t9)) {
+                chat_push(&chat, ROLE_USER, t9.text);
+                if (send_query(t9.text)) {
+                    t9_set_text(&t9, "");
+                    resp_len = 0;
+                    resp_buf[0] = '\0';
+                    scroll = 0xFFFF;
+                    screen = SCR_THINKING;
+                } else if (has_device) {
+                    enter_splash(ST_DISCONNECTED);  /* write failed with a device present */
+                }
+                /* !has_device: the main loop drops to the splash */
+            }
+        }
+        if (p & KB(K_2ND)) enter_splash(ST_CONNECTED);
+        return;
+
+    case SCR_THINKING:
+        if (p & KB(K_CLEAR)) {
+            chat_pop_last(&chat, resp_buf, MAX_RESP);  /* restore the question */
+            t9_set_text(&t9, resp_buf);
+            resp_len = 0;
+            resp_buf[0] = '\0';
+            stale_replies++;                           /* skip the reply when it arrives */
+            screen = SCR_TYPING;
+            flash_key = -1;
+        }
+        return;
+
+    default: { /* SCR_ANSWER */
+        uint16_t maxs = scroll_max(content_h, CHAT_VIEW_H);
+        if (scroll > maxs) scroll = maxs;
+        if (p & KB(K_UP))   scroll = (scroll >= 20) ? (uint16_t)(scroll - 20) : 0;
+        if (p & KB(K_DOWN)) scroll = (scroll + 20 > maxs) ? maxs : (uint16_t)(scroll + 20);
+        if (p & KB(K_ENTER)) enter_typing();
+        if (p & (KB(K_CLEAR) | KB(K_2ND))) enter_splash(ST_CONNECTED);
+        return;
+    }
+    }
+}
+
+/* ── Main ───────────────────────────────────────────────────────────── */
 int main(void) {
     gfx_Begin();
+    gfx_SetPalette(palette, sizeof palette, 0);
     gfx_SetMonospaceFont(CHAR_W);
-    gfx_SetTextBGColor(COLOR_BG);
-    gfx_SetTextTransparentColor(0xFE);
-    gfx_FillScreen(COLOR_BG);
+    gfx_SetTextBGColor(C_TEXT_TP);
+    gfx_SetTextTransparentColor(C_TEXT_TP);     /* text BG == transparent: glyphs never paint their cell */
+    gfx_SetTextConfig(gfx_text_noclip);
+    gfx_SetDrawBuffer();
 
-    text_y = 0;
-    print_top_line("AICHAT v4.0", COLOR_PROMPT);
-    print_top_line("Connect USB and start bridge.py", COLOR_FG);
-    print_top_line("Arrows=move ENTER=type MODE=phrases", COLOR_FG);
+    rain_init(rain, 7);
+    t9_init(&t9);
+    chat_init(&chat);
+    memset(last_edge, 0, sizeof last_edge);
 
     const usb_standard_descriptors_t *desc = srl_GetCDCStandardDescriptors();
-    usb_error_t usb_err = usb_Init(handle_usb_event, NULL, desc, USB_DEFAULT_INIT_FLAGS);
-    if (usb_err) {
-        print_top_line("USB init failed!", 0xE0);
-        while (!kb_AnyKey()) { kb_Scan(); }
+    if (usb_Init(handle_usb_event, NULL, desc, USB_DEFAULT_INIT_FLAGS) != USB_SUCCESS) {
+        gfx_FillScreen(C_DEEP_BLUE);
+        text_centered("USB INIT FAILED", 110, C_ORANGE, 1);
+        text_centered("press any key to exit", 124, C_HINT, 1);
+        gfx_SwapDraw();
+        do { kb_Scan(); } while (kb_AnyKey());
+        do { kb_Scan(); } while (!kb_AnyKey());
+        usb_Cleanup();
         gfx_End();
         return 1;
     }
 
-    print_top_line("Waiting for USB connection...", COLOR_WAIT);
-    while (!has_device) {
-        kb_Scan();
-        if (kb_IsDown(kb_KeyClear)) { usb_Cleanup(); gfx_End(); return 0; }
-        usb_HandleEvents();
-    }
+    t_key = t_anim = now_ms();
+    prev_keys = read_keys();            /* keys held at launch (e.g. ENTER) are not edges */
 
-    bool running = true;
     while (running) {
-        /* If USB disconnected, wait for reconnect */
+        uint32_t now = now_ms();
+
+        usb_HandleEvents();
+
+        /* Connection state → splash status. */
         if (!has_device) {
-            gfx_FillScreen(COLOR_BG);
-            text_y = 0;
-            print_top_line("USB disconnected.", 0xE0);
-            print_top_line("Reconnect cable and wait...", COLOR_WAIT);
-            while (!has_device) {
-                kb_Scan();
-                if (kb_IsDown(kb_KeyClear)) { running = false; break; }
-                usb_HandleEvents();
-            }
-            if (!running) continue;
-            gfx_FillScreen(COLOR_BG);
-            text_y = 0;
-            print_top_line("Reconnected!", COLOR_PROMPT);
-            delay(500);
+            if (screen != SCR_SPLASH) enter_splash(ST_DISCONNECTED);
+            else if (status == ST_CONNECTED) { status = ST_DISCONNECTED; dirty = true; }
+        } else if (screen == SCR_SPLASH && status != ST_CONNECTED) {
+            status = ST_CONNECTED;
+            dirty = true;
         }
 
-        input_len = 0;
-        input_buf[0] = '\0';
-        num_suggestions = 0;
-        kb_row = 0;
-        kb_col = 0;
-
-        gfx_FillScreen(COLOR_BG);
-        draw_input_line();
-        draw_suggestions();
-        draw_keyboard();
-
-        int result;
-        do {
-            if (phrase_mode) {
-                /* Phrase mode overlay */
-                draw_phrase_mode();
-                int pres = handle_phrase_input();
-                if (pres != 0) {
-                    /* Exited phrase mode (inserted or cancelled) */
-                    phrase_mode = false;
-                    gfx_FillScreen(COLOR_BG);
-                    draw_input_line();
-                    draw_suggestions();
-                    draw_keyboard();
-                }
-                usb_HandleEvents();
-                if (!has_device) break;
-                delay(80);
-                result = 0;  /* stay in input loop */
-            } else {
-                result = handle_keyboard_input();
-                if (result == -1) { running = false; break; }
-                usb_HandleEvents();
-                if (!has_device) break;
-                update_suggestions();
-                draw_input_line();
-                draw_suggestions();
-                draw_keyboard();
-                delay(80);
-            }
-        } while (result == 0);
-
-        if (!running || !has_device || input_len == 0) continue;
-
-        gfx_FillScreen(COLOR_BG);
-        text_y = 0;
-        print_top_line("You:", COLOR_PROMPT);
-        print_top_wrapped(input_buf, COLOR_FG, KB_TOP_Y - 10);
-        text_y += FONT_H;
-        print_top_line("Waiting for AI response...", COLOR_WAIT);
-
-        if (!send_query(input_buf)) {
-            if (!has_device) continue;  /* drop to reconnect screen */
-            print_top_line("Send failed!", 0xE0);
-            while (!kb_AnyKey()) { kb_Scan(); }
-            while (kb_AnyKey()) { kb_Scan(); }
-            continue;
+        /* Keys: sampled at 100 Hz, key-down edges only. */
+        if ((uint32_t)(now - t_key) >= KEY_SAMPLE_MS) {
+            uint32_t pressed;
+            t_key = now;
+            pressed = key_edges(now);
+            if (pressed) { handle_keys(pressed, now); dirty = true; }
         }
 
-        if (!read_line(resp_buf, MAX_RESP)) {
-            if (!has_device) continue;  /* drop to reconnect screen */
-            running = false;
-            continue;
+        poll_serial();
+
+        /* Timers. */
+        if (screen == SCR_TYPING && t9.pend_key >= 0) {
+            t9_tick(&t9, now);
+            if (t9.pend_key < 0) dirty = true;              /* 900 ms commit */
+        }
+        if (flash_key >= 0 && (uint32_t)(now - flash_t0) >= FLASH_MS) {
+            flash_key = -1;
+            dirty = true;
+        }
+        if ((uint32_t)(now - t_anim) >= ANIM_TICK_MS) {
+            t_anim = now;
+            tick++;
+            rain_step(rain, (uint8_t)tick);
+            if (screen == SCR_SPLASH) dirty = true;                               /* rain + dots */
+            else if (screen == SCR_THINKING && tick % 3 == 0) dirty = true;       /* spinner */
+            else if (screen == SCR_TYPING && t9.pend_key < 0 && tick % 5 == 0) dirty = true;  /* caret */
         }
 
-        gfx_FillScreen(COLOR_BG);
-        text_y = 0;
-        print_top_line("You:", COLOR_PROMPT);
-        print_top_wrapped(input_buf, COLOR_FG, SCREEN_H);
-        text_y += FONT_H;
-        print_top_line("AI:", COLOR_PROMPT);
-        print_top_wrapped(resp_buf, COLOR_FG, SCREEN_H - FONT_H);
-        gfx_SetTextFGColor(COLOR_WAIT);
-        gfx_PrintStringXY("[Any key -> new query]", 0, SCREEN_H - FONT_H);
-
-        while (!kb_AnyKey()) { kb_Scan(); usb_HandleEvents(); }
-        while (kb_AnyKey()) { kb_Scan(); }
+        if (dirty) {
+            dirty = false;
+            draw_current();          /* always a full frame: SwapDraw does not copy */
+            gfx_SwapDraw();
+        }
     }
 
     usb_Cleanup();

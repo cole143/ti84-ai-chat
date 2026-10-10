@@ -2,7 +2,7 @@ name: Build AICHAT.8xp
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, zachgpt-v5]
   workflow_dispatch:
 
 jobs:

@@ -135,6 +135,15 @@ You should see `bridge.py`, `echo_test.py`, and your `.env` file listed.
 
 ## Part 2: Install CE C Toolchain (about 10 minutes)
 
+> **Current workflow (Oct 2026):** the toolchain is *not* installed on the Windows side
+> (Defender blocks the installer). The program is built by GitHub Actions on every push
+> (`.github/workflows/build.yml`, toolchain v14.2): `git push`, then
+> `gh run list --workflow=build.yml --limit 1`, `gh run watch <id> --exit-status`, delete the old
+> `calc\bin\AICHAT.8xp`, and `gh run download <id> --name AICHAT --dir calc/bin/`.
+> The same toolchain is also installed in WSL Ubuntu (`~/CEdev`), so
+> `wsl -d Ubuntu -e bash -lc 'export PATH=$HOME/CEdev/bin:$PATH; cd /mnt/c/ti84-bridge/calc && make'`
+> builds the identical `.8xp` locally. Steps 6-12 below describe the original Windows route.
+
 The CE C Toolchain is a free compiler that turns C code into a program your
 calculator can run. Think of it like a translator.
 
@@ -306,11 +315,8 @@ works for both transferring programs and running the chat bridge.
 1. On the calculator, press **[PRGM]**.
 2. Scroll down to **AICHAT** and press **[ENTER]**.
 3. Press **[ENTER]** again to run it.
-4. The screen should display:
-   ```
-   AICHAT v1.0
-   Waiting for USB connection...
-   ```
+4. The screen shows the **ZACH GPT** splash: blue background with falling characters,
+   the orange title, and at the bottom `WAITING FOR USB CONNECTION...`.
 
 ### Step 19: Find the COM Port Number
 
@@ -349,8 +355,9 @@ flowing.
 
 ### Step 21: Test from the Calculator
 
-1. On the calculator, type a word using ALPHA mode (press **[ALPHA]** once to enter
-   letter mode, then press letter keys).
+1. On the calculator, press **[ENTER]** on the splash once it says `USB CONNECTED`, then
+   type a word with the T9 keys (tap **[8]** once for A, twice for B, three times for C;
+   see the Keyboard Cheat Sheet below).
 2. Press **[ENTER]**.
 3. The word should appear in the Command Prompt window on your PC, prefixed with
    `Received:`.
@@ -394,34 +401,52 @@ Bridge running on COM3. Waiting for calc...
 
 ### Step 24: Ask a Question!
 
-1. On the calculator, make sure AICHAT is still running. If you see a prompt (`>`),
-   you are ready.
-2. Type your question using ALPHA mode:
-   - Press **[ALPHA]** once — keys now type letters (A, B, C...).
-   - The **SPACE** bar is **[ALPHA] + [0]** (zero key).
-   - Press **[ALPHA]** again to switch back to numbers if needed.
+1. On the calculator, the splash should now read `USB CONNECTED` — press **[ENTER]** to
+   open the typing screen (orange header, `>` prompt, 12-key grid).
+2. Type your question with **T9 multi-tap** on the number keys: tap a key to cycle through
+   its letters (the big orange box shows the pending letter), pause 0.9 s or press another
+   key to commit. **[0]** is space. **[ALPHA]** switches to `123` mode, where the first tap
+   of a key is the digit and the second tap is its symbol (`12%` = ALPHA, 1, 2, 1, 1).
 3. Press **[ENTER]** to send.
-4. The calculator shows "Waiting..." while the PC contacts Claude AI.
+4. The calculator shows your question in a bubble with a `THINKING...` pill while the PC
+   contacts Claude AI. **[CLEAR]** cancels and puts the question back in the input.
 5. Wait **3 to 8 seconds**.
-6. The answer appears on your calculator screen!
-7. Press any key to return to the prompt and ask another question.
+6. The answer appears in an orange bubble. **[UP]/[DOWN]** scroll long answers.
+7. Press **[ENTER]** to ask another question (the conversation stays on screen), or
+   **[CLEAR]** / **[2nd]** to return to the splash.
 
 ---
 
 ## Keyboard Cheat Sheet
 
+The letters follow the **physical keypad** (7 8 9 on the top row), so the alphabet reads
+top-down, left-to-right:
+
+| Key | ABC mode (tap to cycle) | 123 mode (1st tap / 2nd tap) |
+|-----|-------------------------|------------------------------|
+| **[7]** | `.` `,` `?` `!` `'` | `7` / `+` |
+| **[8]** | `A` `B` `C` | `8` / `-` |
+| **[9]** | `D` `E` `F` | `9` / `*` |
+| **[4]** | `G` `H` `I` | `4` / `(` |
+| **[5]** | `J` `K` `L` | `5` / `)` |
+| **[6]** | `M` `N` `O` | `6` / `,` |
+| **[1]** | `P` `Q` `R` `S` | `1` / `%` |
+| **[2]** | `T` `U` `V` | `2` / `$` |
+| **[3]** | `W` `X` `Y` `Z` | `3` / `.` |
+| **[0]** | space | `0` / `/` |
+
 | Key | What It Does |
 |-----|--------------|
-| **[ALPHA]** | Toggle letter mode on/off. Press once for letters, again for numbers. |
-| **[DEL]** | Backspace — deletes the last character you typed |
-| **[ENTER]** | Send your question to the AI |
-| **[CLEAR]** | Exit the AICHAT program |
+| **[ALPHA]** | Switch between `ABC` and `123` mode (commits the pending letter first) |
+| **[DEL]** | Drops the pending letter if there is one, otherwise deletes the last character |
+| **[ENTER]** | Splash: start typing. Typing: send. Answer: ask a new question |
+| **[UP]/[DOWN]** | Scroll the answer by 20 px |
+| **[CLEAR]** | Thinking: cancel. Answer: back to splash. Splash: exit the program |
+| **[2nd]** | Typing or Answer: back to the splash (clears the conversation) |
 | **[ON]** | Emergency exit — press this if the program freezes or hangs |
-| **[2nd]** | Does nothing in AICHAT |
-| **[ALPHA] + [0]** | Types a space |
 
-**Tip:** The calculator keyboard is slow to type on, so keep questions short. For
-example: `What is entropy` or `Define photosynthesis` rather than long sentences.
+**Tip:** pause 0.9 s between two letters that share a key (`AB` = tap 8, wait, tap 8 twice),
+or press any other key to commit immediately.
 
 ---
 
@@ -528,30 +553,17 @@ the bridge.
 
 ---
 
-## Phrase Mode (v4.0)
+## ZACH GPT v5.0 Screens
 
-Press the **MODE** key on your calculator at any time during input to open phrase mode.
+| Screen | What you see | Keys |
+|--------|--------------|------|
+| **Splash** | Blue background, falling characters, orange `ZACH GPT` title, status line `WAITING FOR USB CONNECTION...` → `USB CONNECTED` | ENTER (or any digit / ALPHA) once connected → Typing. CLEAR exits. |
+| **Typing** | Orange header with `ABC`/`123` badge, `>` prompt with the last two lines of your question, 12-key T9 grid laid out like the keypad (`7 8 9 / 4 5 6 / 1 2 3 / ALPHA 0 DEL`) | Digits type, ALPHA toggles mode, DEL backspaces, ENTER sends, 2nd exits to the splash. |
+| **Thinking** | Your question in a light-blue bubble, orange `THINKING...` pill with a spinner | CLEAR cancels and restores the question. |
+| **Answer** | Conversation bubbles (last 6 messages), orange scrollbar on the right | UP/DOWN scroll, ENTER new question, CLEAR or 2nd back to the splash. |
 
-### How It Works
-
-1. Press **MODE** to open the phrase overlay
-2. Use **Left/Right** arrows to switch between category tabs
-3. Use **Up/Down** arrows to highlight a phrase
-4. Press **ENTER** to insert the phrase and return to typing
-5. Press **MODE** again to cancel without inserting
-
-### Categories
-
-| Tab | Phrases |
-|-----|---------|
-| STARTERS | WHICH OF THE FOLLOWING, A COMPANY HAS, A COMPANY, AN ANALYST, SHOULD A COMPANY, WHAT HAPPENS TO THE, HOW MUCH |
-| QUALIFIERS | MOST LIKELY, LEAST LIKELY, MOST APPROPRIATE, CLOSEST TO, BEST DESCRIBES, SHOULD BE CONSIDERED, WITH RESPECT TO, IN ORDER TO |
-| RATIOS | CURRENT RATIO, QUICK RATIO, CASH CONVERSION CYCLE, NET PROFIT MARGIN, CURRENT ASSETS, CURRENT LIABILITIES, ACCOUNTS PAYABLE |
-| FINANCE | WEIGHTED AVERAGE COST OF CAPITAL, COST OF CAPITAL, NET PRESENT VALUE, DISCOUNTED CASH FLOW, CAPITAL INVESTMENTS, CAPITAL BUDGETING, CORPORATE GOVERNANCE, FINANCIAL REPORTING QUALITY |
-
-### Input Buffer
-
-The input buffer has been increased from 256 to 512 characters, allowing for longer, more detailed questions.
+If the USB cable is unplugged on any screen, the program returns to the splash with
+`USB DISCONNECTED`; plug it back in and it flips to `USB CONNECTED` again.
 
 ---
 

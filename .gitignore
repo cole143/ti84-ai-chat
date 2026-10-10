@@ -2,3 +2,6 @@ study_pack.txt
 host/__pycache__/
 host/tests/__pycache__/
 .pytest_cache/
+calc/obj/
+calc/test/out/
+calc/test/font8x8.bin
