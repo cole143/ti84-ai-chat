@@ -209,6 +209,7 @@ static void test_scroll_thumb_proportional(void) {
 /* ── Rain ─────────────────────────────────────────────────────────── */
 static void test_rain_init_is_deterministic(void) {
     rain_col_t a[RAIN_COLS], b[RAIN_COLS];
+    memset(a, 0, sizeof a); memset(b, 0, sizeof b);   /* host padding bytes */
     rain_init(a, 7); rain_init(b, 7);
     CHECK(memcmp(a, b, sizeof a) == 0);
     int dim = 0, differ = 0;
@@ -230,10 +231,10 @@ static void test_rain_step_advances_by_period(void) {
     rain_col_t a[RAIN_COLS]; rain_init(a, 7);
     a[0].period = 1; a[0].phase = 0; a[0].pos = 30;
     a[1].period = 3; a[1].phase = 0; a[1].pos = 0;
-    rain_step(a, 0); CHECK(a[0].pos == 0); CHECK(a[1].pos == 1);
-    rain_step(a, 1); CHECK(a[0].pos == 1); CHECK(a[1].pos == 1);
-    rain_step(a, 2); CHECK(a[1].pos == 1);
-    rain_step(a, 3); CHECK(a[0].pos == 3); CHECK(a[1].pos == 2);
+    rain_step(a, 0); CHECK(a[0].pos == 0); CHECK(a[1].pos == 1); CHECK(a[0].moved == 1); CHECK(a[1].moved == 1);
+    rain_step(a, 1); CHECK(a[0].pos == 1); CHECK(a[1].pos == 1); CHECK(a[0].moved == 1); CHECK(a[1].moved == 0);
+    rain_step(a, 2); CHECK(a[1].pos == 1); CHECK(a[1].moved == 0);
+    rain_step(a, 3); CHECK(a[0].pos == 3); CHECK(a[1].pos == 2); CHECK(a[1].moved == 1);
 }
 
 int main(void) {

@@ -5,3 +5,4 @@ host/tests/__pycache__/
 calc/obj/
 calc/test/out/
 calc/test/font8x8.bin
+dist/

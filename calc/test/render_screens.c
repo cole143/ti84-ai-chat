@@ -27,6 +27,7 @@ int main(void) {
     gfx_SetTextTransparentColor(C_TEXT_TP);
     gfx_SetTextConfig(gfx_text_noclip);
     rain_init(rain, 7);
+    for (i = 0; i < RAIN_COLS; i++) rain_chars(&rain[i], rain_tab[i]);
     t9_init(&t9);
     chat_init(&chat);
 

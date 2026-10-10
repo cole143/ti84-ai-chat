@@ -36,6 +36,7 @@ void gfx_SetTextBGColor(uint8_t c) { text_bg = c; }
 void gfx_SetTextTransparentColor(uint8_t c) { text_tp = c; }
 void gfx_SetTextConfig(uint8_t cfg) { text_clip = (cfg == gfx_text_clip); }
 void gfx_SetDrawBuffer(void) {}
+void gfx_SetDrawScreen(void) {}
 void gfx_SwapDraw(void) {}
 void gfx_FillScreen(uint8_t c) { memset(shim_fb, c, sizeof shim_fb); }
 void gfx_SetColor(uint8_t c) { color = c; }

@@ -281,6 +281,7 @@ void rain_init(rain_col_t *cols, uint32_t master_seed) {
         c->phase  = (uint8_t)(lcg32(&s) % c->period);
         c->pos    = (uint8_t)(lcg32(&s) % RAIN_LEN);
         c->dim    = (uint8_t)((lcg32(&s) % 100) < 45);
+        c->moved  = 0;
     }
 }
 
@@ -288,7 +289,8 @@ void rain_step(rain_col_t *cols, uint8_t tick) {
     uint8_t i;
     for (i = 0; i < RAIN_COLS; i++) {
         rain_col_t *c = &cols[i];
-        if ((uint8_t)(tick + c->phase) % c->period == 0)
+        c->moved = (uint8_t)((uint8_t)(tick + c->phase) % c->period == 0);
+        if (c->moved)
             c->pos = (uint8_t)((c->pos + 1) % RAIN_LEN);
     }
 }

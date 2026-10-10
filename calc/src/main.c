@@ -4,6 +4,14 @@
  * 0-9 keys, Thinking, Answer (scrollable chat bubbles).
  * Libraries: graphx, keypadc, usbdrvce, srldrvce. Protocol: "question\n" out,
  * "answer\n" back (bridge.py on the PC). UI logic lives in logic.c.
+ *
+ * Drawing strategy: the splash is drawn straight to the screen and only the
+ * rain columns that moved are repainted each 100 ms tick; the other screens are
+ * drawn as full frames into the back buffer and shown with gfx_SwapDraw().
+ * usb_HandleEvents() is also called inside every drawing loop so USB enumeration
+ * and serial traffic are serviced even in the middle of a frame (a splash frame
+ * measured 289 ms on hardware when drawn naively, which starved USB and made
+ * Windows fail the descriptor request).
  */
 
 #include <stdbool.h>
@@ -18,8 +26,24 @@
 
 #include "logic.h"
 
+#ifdef ZG_DEBUG
+#include <stdio.h>
+/* Diagnostic overlay on the splash hint line (build with make CFLAGS="... -DZG_DEBUG"):
+ * T seconds since start (from clock), E usb_HandleEvents calls in the last second,
+ * X last non-zero usb_HandleEvents error, F ms spent drawing the last frame/tick,
+ * R usb_GetRole(), V last 6 USB event codes seen by the handler (newest last). */
+static uint32_t dbg_now, dbg_ev_count, dbg_ev_rate, dbg_ev_t0;
+static uint8_t  dbg_last_err, dbg_events[6], dbg_nevents;
+static uint16_t dbg_frame_ms;
+static void dbg_note_event(uint8_t ev) {
+    if (dbg_nevents < 6) { dbg_events[dbg_nevents++] = ev; return; }
+    memmove(dbg_events, dbg_events + 1, 5);
+    dbg_events[5] = ev;
+}
+#endif
+
 /* ── Config ─────────────────────────────────────────────────────────── */
-#define SRL_BUF_SZ  4096
+#define SRL_BUF_SZ  2048        /* srldrvce splits it: 1 KB rx + 1 KB tx; a message is <= 513 B */
 
 #define SCREEN_W    320
 #define SCREEN_H    240
@@ -38,7 +62,8 @@ enum {
     C_USER_BUBBLE, C_AI_BUBBLE, C_RAIN_DIM, C_RAIN, C_RAIN_HEAD, C_TITLE_SHADOW, C_SCRIM,
     C_COUNT
 };
-#define C_TEXT_TP 255   /* graphx default text background = transparent colour; never drawn */
+#define C_TEXT_TP   255   /* graphx default text background = transparent colour; never drawn */
+#define C_TEXT_NOTP 254   /* an unused index: makes glyph backgrounds opaque when set as TP colour */
 
 static const uint16_t palette[C_COUNT] = {
     gfx_RGBTo1555(0xFF, 0xFF, 0xFF),  /* WHITE */
@@ -80,6 +105,7 @@ static uint8_t srl_buf[SRL_BUF_SZ];
 static t9_t        t9;
 static chat_t      chat;
 static rain_col_t  rain[RAIN_COLS];
+static char        rain_tab[RAIN_COLS][RAIN_LEN];   /* characters, generated once */
 static bubble_t    bubbles[MAX_MSGS + 1];
 static wrap_t      wrap;
 static char        linebuf[INPUT_COLS + 1];
@@ -92,6 +118,7 @@ static uint8_t  screen = SCR_SPLASH;
 static uint8_t  status = ST_WAITING;
 static bool     running = true;
 static bool     dirty = true;
+static bool     splash_full = true;     /* splash needs a complete repaint (not just rain) */
 static uint16_t scroll = 0xFFFF;        /* 0xFFFF = "bottom", clamped at draw time */
 static uint16_t content_h = 0;
 
@@ -108,10 +135,25 @@ static uint32_t now_ms(void) {
     return (t >> 15) * 1000u + (((t & 0x7FFFu) * 1000u) >> 15);
 }
 
+/* USB servicing from inside drawing loops: keeps enumeration and serial traffic
+ * alive while a frame is being painted. */
+static void usb_pump(void) {
+#ifdef ZG_DEBUG
+    usb_error_t e = usb_HandleEvents();
+    if (e) dbg_last_err = (uint8_t)e;
+    dbg_ev_count++;
+#else
+    usb_HandleEvents();
+#endif
+}
+
 /* ── USB event handler (unchanged from v4) ──────────────────────────── */
 static usb_error_t handle_usb_event(usb_event_t event, void *event_data,
                                      usb_callback_data_t *callback_data __attribute__((unused))) {
     usb_error_t err;
+#ifdef ZG_DEBUG
+    dbg_note_event((uint8_t)event);
+#endif
     if ((err = srl_UsbEventCallback(event, event_data, callback_data)) != USB_SUCCESS)
         return err;
     if (event == USB_DEVICE_CONNECTED_EVENT && !(usb_GetRole() & USB_ROLE_DEVICE)) {
@@ -254,6 +296,11 @@ static void char_at(char c, int x, int y, uint8_t color) {
     gfx_PrintChar(c);
 }
 
+static void text_transparent(bool on) {
+    gfx_SetTextBGColor(on ? C_TEXT_TP : C_DEEP_BLUE);
+    gfx_SetTextTransparentColor(on ? C_TEXT_TP : C_TEXT_NOTP);
+}
+
 static void draw_header(const char *badge) {
     int bw = (int)strlen(badge) * CHAR_W + 8;
     int bx = 314 - bw;
@@ -263,63 +310,111 @@ static void draw_header(const char *badge) {
     text_at(badge, bx + 4, 6, C_ORANGE);
 }
 
-/* ── Splash ─────────────────────────────────────────────────────────── */
+/* ── Splash (drawn directly on the screen, rain repainted per column) ── */
 #define RAIN_X_STEP (SCREEN_W / RAIN_COLS)
 
-static void draw_splash(void) {
-    char col[RAIN_LEN];
-    char line[40];
-    uint8_t i, j, dots, k;
-    const char *base, *hint;
-
-    gfx_FillScreen(C_DEEP_BLUE);
-
-    /* Rain: only the rows not hidden by the scrim (76-163) or the bottom panel (206+). */
-    for (i = 0; i < RAIN_COLS; i++) {
-        const rain_col_t *c = &rain[i];
-        uint8_t body = c->dim ? C_RAIN_DIM : C_RAIN;
-        uint8_t head = c->dim ? C_RAIN : C_RAIN_HEAD;
-        int x = i * RAIN_X_STEP;
-        rain_chars(c, col);
-        for (j = 0; j < RAIN_LEN; j++) {
-            uint8_t r = (uint8_t)((j + c->pos) % RAIN_LEN);
-            if (r > 25 || (r >= 10 && r <= 19)) continue;
-            char_at(col[j], x, r * FONT_H, j < 2 ? head : body);
-        }
+/* Repaints the visible cells of one rain column with an opaque DEEP_BLUE glyph
+ * background (caller sets text_transparent(false)). Rows 10-19 are under the
+ * scrim and rows >= 26 under the bottom panel, so they are never drawn. */
+static void splash_draw_col(uint8_t i) {
+    const rain_col_t *c = &rain[i];
+    const char *s = rain_tab[i];
+    uint8_t body = c->dim ? C_RAIN_DIM : C_RAIN;
+    uint8_t head = c->dim ? C_RAIN : C_RAIN_HEAD;
+    int x = i * RAIN_X_STEP;
+    uint8_t j, r = c->pos;                          /* row of string index 0 (the head) */
+    for (j = 0; j < RAIN_LEN; j++) {
+        if (r <= 25 && !(r >= 10 && r <= 19))
+            char_at(s[j], x, r * FONT_H, j < 2 ? head : body);
+        if (++r == RAIN_LEN) r = 0;
     }
+}
+
+/* Restores the scrim / panel edges that opaque rain cells overlap. */
+static void splash_fix_edges(void) {
+    rect(0, 76, SCREEN_W, 4, C_SCRIM);              /* row 9 reaches y 79 */
+    rect(0, 160, SCREEN_W, 4, C_SCRIM);             /* row 20 starts under the scrim */
+    rect(0, 206, SCREEN_W, 2, C_DEEP_BLUE);         /* row 25 reaches y 207 */
+}
+
+static void splash_draw_status(void) {
+    char line[40];
+    const char *base;
+    uint8_t dots, j, k;
+    if (status == ST_CONNECTED) { base = "USB CONNECTED"; dots = 0; }
+    else if (status == ST_DISCONNECTED) { base = "USB DISCONNECTED"; dots = (uint8_t)((tick / 4) % 4); }
+    else { base = "WAITING FOR USB CONNECTION"; dots = (uint8_t)((tick / 4) % 4); }
+    k = (uint8_t)strlen(base);
+    memcpy(line, base, k);
+    for (j = 0; j < dots; j++) line[k++] = '.';
+    line[k] = '\0';
+    rect(0, 214, SCREEN_W, FONT_H, C_DEEP_BLUE);
+    text_centered(line, 214, C_WHITE, 1);
+}
+
+static void splash_draw_hint(void) {
+    rect(0, 228, SCREEN_W, FONT_H, C_DEEP_BLUE);
+#ifdef ZG_DEBUG
+    {
+        char line[40];
+        uint8_t j, k;
+        snprintf(line, sizeof line, "T%lu E%lu X%u F%u R%u V", (unsigned long)(dbg_now / 1000),
+                 (unsigned long)dbg_ev_rate, (unsigned)dbg_last_err, (unsigned)dbg_frame_ms,
+                 (unsigned)usb_GetRole());
+        k = (uint8_t)strlen(line);
+        for (j = 0; j < dbg_nevents && k < sizeof line - 2; j++)
+            line[k++] = (char)(dbg_events[j] < 10 ? '0' + dbg_events[j] : 'A' + dbg_events[j] - 10);
+        line[k] = '\0';
+        text_centered(line, 228, C_CYAN, 1);
+    }
+#else
+    text_centered(status == ST_CONNECTED ? "press ENTER to start"
+                  : status == ST_DISCONNECTED ? "reconnect cable and wait"
+                  : "run bridge.py on your PC", 228, C_HINT, 1);
+#endif
+}
+
+/* Complete splash repaint. */
+static void draw_splash(void) {
+    uint8_t i;
+    gfx_FillScreen(C_DEEP_BLUE);
+    text_transparent(false);
+    for (i = 0; i < RAIN_COLS; i++) { splash_draw_col(i); usb_pump(); }
+    text_transparent(true);
 
     /* Scrim + title with drop shadow (scale 4 = 32 px; closest to the 36 px design). */
     rect(0, 76, SCREEN_W, 88, C_SCRIM);
     gfx_SetTextScale(4, 4);
     text_at("ZACH GPT", 36, 100, C_TITLE_SHADOW);
+    usb_pump();
     text_at("ZACH GPT", 32, 96, C_ORANGE);
     gfx_SetTextScale(1, 1);
+    usb_pump();
 
     /* Subtitle; the middle dot is not in the 8x8 font, so draw it as a 2x2 block. */
     text_centered("AI ON YOUR TI-84     v5.0", 140, C_CYAN, 1);
     rect(207, 143, 2, 2, C_CYAN);
 
-    /* Bottom panel: status + hint. */
     rect(0, 206, SCREEN_W, 34, C_DEEP_BLUE);
-    if (status == ST_CONNECTED) {
-        base = "USB CONNECTED";
-        hint = "press ENTER to start";
-        dots = 0;
-    } else if (status == ST_DISCONNECTED) {
-        base = "USB DISCONNECTED";
-        hint = "reconnect cable and wait";
-        dots = (uint8_t)((tick / 4) % 4);
-    } else {
-        base = "WAITING FOR USB CONNECTION";
-        hint = "run bridge.py on your PC";
-        dots = (uint8_t)((tick / 4) % 4);
+    splash_draw_status();
+    splash_draw_hint();
+}
+
+/* Per-tick splash update: only the columns that advanced, plus the dots. */
+static void draw_splash_tick(void) {
+    uint8_t i;
+    bool any = false;
+    text_transparent(false);
+    for (i = 0; i < RAIN_COLS; i++) {
+        if (rain[i].moved) { splash_draw_col(i); any = true; }
+        usb_pump();
     }
-    k = (uint8_t)strlen(base);
-    memcpy(line, base, k);
-    for (j = 0; j < dots; j++) line[k++] = '.';
-    line[k] = '\0';
-    text_centered(line, 214, C_WHITE, 1);
-    text_centered(hint, 228, C_HINT, 1);
+    text_transparent(true);
+    if (any) splash_fix_edges();
+    if (tick % 4 == 0 && status != ST_CONNECTED) splash_draw_status();
+#ifdef ZG_DEBUG
+    splash_draw_hint();
+#endif
 }
 
 /* ── Typing ─────────────────────────────────────────────────────────── */
@@ -380,6 +475,7 @@ static void draw_typing(void) {
     } else {
         text_centered(t9.num_mode ? "TAP TWICE FOR SYMBOL" : "TAP KEY TO CYCLE LETTERS", 28, C_HINT, 1);
     }
+    usb_pump();
 
     /* Prompt + input (2 lines, bottom-anchored, 37 cols, word-wrapped). */
     text_at(">", 6, 46, C_ORANGE);
@@ -390,6 +486,7 @@ static void draw_typing(void) {
         memcpy(linebuf, t9.text + wrap.start[i], wrap.len[i]);
         linebuf[wrap.len[i]] = '\0';
         text_at(linebuf, 18, 62 - back * 10, C_NAVY);
+        usb_pump();
     }
     cx = 18 + wrap.cursor_col * CHAR_W;
     if (t9.pend_key >= 0) {
@@ -408,8 +505,10 @@ static void draw_typing(void) {
     gfx_HorizLine_NoClip(0, 74, SCREEN_W);
 
     /* Key grid mirrors the physical keypad: 7 8 9 / 4 5 6 / 1 2 3 / ALPHA 0 DEL. */
-    for (i = 0; i < 12; i++)
+    for (i = 0; i < 12; i++) {
         draw_key(GRID_ORDER[i], 6 + (i % 3) * 104, 80 + (i / 3) * 36);
+        usb_pump();
+    }
 
     text_centered(t9.num_mode ? "ENTER=send DEL=back ALPHA=ABC 2nd=exit"
                               : "ENTER=send DEL=back ALPHA=123 2nd=exit", 230, C_HINT, 1);
@@ -454,11 +553,15 @@ static void draw_chat(bool thinking) {
             uint8_t l;
             wrap_text(m->text, (uint16_t)strlen(m->text), b->cols, 0, &wrap);
             for (l = 0; l < wrap.count; l++) {
+                int ly = by + 7 + l * 10;
+                if (ly + FONT_H <= 28 || ly >= 224) continue;   /* line fully outside */
                 memcpy(linebuf, m->text + wrap.start[l], wrap.len[l]);
                 linebuf[wrap.len[l]] = '\0';
-                text_at(linebuf, b->x + 6, by + 7 + l * 10, C_NAVY);
+                text_at(linebuf, b->x + 6, ly, C_NAVY);
+                usb_pump();
             }
         }
+        usb_pump();
     }
     gfx_SetTextConfig(gfx_text_noclip);
     gfx_SetClipRegion(0, 0, SCREEN_W, SCREEN_H);
@@ -471,6 +574,7 @@ static void draw_chat(bool thinking) {
     text_centered(thinking ? "CLEAR=cancel" : "UP/DOWN=scroll ENTER=new CLEAR=exit", 230, C_HINT, 1);
 }
 
+/* Full frame of the current screen (the splash variant is used by the host renderer). */
 static void draw_current(void) {
     switch (screen) {
         case SCR_SPLASH:   draw_splash(); break;
@@ -490,6 +594,8 @@ static void enter_splash(uint8_t new_status) {
     resp_len = 0;
     resp_buf[0] = '\0';
     flash_key = -1;
+    gfx_SetDrawScreen();                 /* splash paints the visible buffer in place */
+    splash_full = true;
     dirty = true;
 }
 
@@ -497,6 +603,7 @@ static void enter_typing(void) {
     screen = SCR_TYPING;
     t9_set_text(&t9, "");
     flash_key = -1;
+    gfx_SetDrawBuffer();                 /* buffered screens: full frame + SwapDraw */
     dirty = true;
 }
 
@@ -563,15 +670,17 @@ static void handle_keys(uint32_t p, uint32_t now) {
 
 /* ── Main ───────────────────────────────────────────────────────────── */
 int main(void) {
+    uint8_t i;
+
     gfx_Begin();
     gfx_SetPalette(palette, sizeof palette, 0);
     gfx_SetMonospaceFont(CHAR_W);
-    gfx_SetTextBGColor(C_TEXT_TP);
-    gfx_SetTextTransparentColor(C_TEXT_TP);     /* text BG == transparent: glyphs never paint their cell */
+    text_transparent(true);                     /* text BG == transparent: glyphs never paint their cell */
     gfx_SetTextConfig(gfx_text_noclip);
-    gfx_SetDrawBuffer();
+    gfx_SetDrawScreen();                        /* the splash draws in place */
 
     rain_init(rain, 7);
+    for (i = 0; i < RAIN_COLS; i++) rain_chars(&rain[i], rain_tab[i]);
     t9_init(&t9);
     chat_init(&chat);
     memset(last_edge, 0, sizeof last_edge);
@@ -581,7 +690,6 @@ int main(void) {
         gfx_FillScreen(C_DEEP_BLUE);
         text_centered("USB INIT FAILED", 110, C_ORANGE, 1);
         text_centered("press any key to exit", 124, C_HINT, 1);
-        gfx_SwapDraw();
         do { kb_Scan(); } while (kb_AnyKey());
         do { kb_Scan(); } while (!kb_AnyKey());
         usb_Cleanup();
@@ -595,14 +703,19 @@ int main(void) {
     while (running) {
         uint32_t now = now_ms();
 
-        usb_HandleEvents();
+        usb_pump();
+#ifdef ZG_DEBUG
+        dbg_now = now;
+        if ((uint32_t)(now - dbg_ev_t0) >= 1000) { dbg_ev_rate = dbg_ev_count; dbg_ev_count = 0; dbg_ev_t0 = now; dirty = true; }
+#endif
 
         /* Connection state → splash status. */
         if (!has_device) {
             if (screen != SCR_SPLASH) enter_splash(ST_DISCONNECTED);
-            else if (status == ST_CONNECTED) { status = ST_DISCONNECTED; dirty = true; }
+            else if (status == ST_CONNECTED) { status = ST_DISCONNECTED; splash_full = true; dirty = true; }
         } else if (screen == SCR_SPLASH && status != ST_CONNECTED) {
             status = ST_CONNECTED;
+            splash_full = true;
             dirty = true;
         }
 
@@ -635,9 +748,20 @@ int main(void) {
         }
 
         if (dirty) {
+#ifdef ZG_DEBUG
+            uint32_t t0 = now_ms();
+#endif
             dirty = false;
-            draw_current();          /* always a full frame: SwapDraw does not copy */
-            gfx_SwapDraw();
+            if (screen == SCR_SPLASH) {
+                if (splash_full) { splash_full = false; draw_splash(); }
+                else draw_splash_tick();
+            } else {
+                draw_current();          /* always a full frame: SwapDraw does not copy */
+                gfx_SwapDraw();
+            }
+#ifdef ZG_DEBUG
+            dbg_frame_ms = (uint16_t)(now_ms() - t0);
+#endif
         }
     }
 

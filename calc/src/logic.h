@@ -95,10 +95,11 @@ typedef struct {
     uint8_t  period;   /* advance every `period` ticks of 100 ms (1..3) */
     uint8_t  phase;    /* random phase 0..period-1 */
     uint8_t  dim;      /* 1 = RAIN_DIM body / RAIN head, 0 = RAIN body / RAIN_HEAD head */
+    uint8_t  moved;    /* set by rain_step(): 1 if this column advanced on the last tick */
 } rain_col_t;
 
 void rain_init(rain_col_t *cols, uint32_t master_seed);
-void rain_step(rain_col_t *cols, uint8_t tick);
+void rain_step(rain_col_t *cols, uint8_t tick);     /* advances pos, sets/clears `moved` */
 void rain_chars(const rain_col_t *c, char *out);   /* out[RAIN_LEN], not NUL-terminated */
 
 #endif /* LOGIC_H */
