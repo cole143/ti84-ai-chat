@@ -1,20 +1,19 @@
-"""TI-84 Plus CE AI Chat Bridge.
+"""TI-84 Plus CE AI Chat Bridge (ZachGPT).
 
-Reads queries from the calculator over USB CDC serial,
-sends them to Claude API, and writes responses back.
-Includes abbreviation expansion and course-specific context.
+Reads questions from the calculator over USB CDC serial, asks Claude as a
+general-purpose assistant, and writes the answer back with the ZachGPT intro
+in front of it.
 
 Usage: python bridge.py [COM_PORT]
 """
 import sys
 import os
-import re
 import time
 import serial
 import anthropic
 from dotenv import load_dotenv
 
-from host.system_prompt import build_system
+from host.system_prompt import build_system, REPLY_PREFIX
 
 load_dotenv()
 
@@ -22,159 +21,6 @@ PORT = sys.argv[1] if len(sys.argv) > 1 else "COM3"
 BAUD = 9600
 TIMEOUT = 90
 MAX_RESPONSE = 500
-
-# ── Abbreviation Expander ──
-# Sorted longest-first so "SDEV" matches before "SD"
-ABBREVIATIONS = {
-    # Question types
-    "MC": "Multiple choice question:",
-    "FITB": "Fill in the blank:",
-    "TF": "True or false:",
-    "CALC": "Calculate:",
-    "DEF": "Define:",
-    # Returns & rates
-    "HPR": "holding period return",
-    "APR": "annual percentage rate",
-    "EAR": "effective annual rate",
-    "RFR": "risk-free rate",
-    "MRP": "market risk premium",
-    "ERR": "expected rate of return",
-    "ROR": "rate of return",
-    "DWR": "dollar-weighted return",
-    "GEO": "geometric average return",
-    "ARITH": "arithmetic average return",
-    # Risk & portfolio
-    "SDEV": "standard deviation",
-    "SD": "standard deviation",
-    "VAR": "variance",
-    "COV": "covariance",
-    "CORR": "correlation coefficient",
-    "SR": "Sharpe ratio",
-    "VAR5": "Value at Risk at 5 percent",
-    "SYST": "systematic risk",
-    "UNSYST": "unsystematic risk",
-    "DIV": "diversification",
-    "MVP": "minimum variance portfolio",
-    "EF": "efficient frontier",
-    "CAL": "capital allocation line",
-    "CML": "capital market line",
-    "SML": "security market line",
-    "SCL": "security characteristic line",
-    "OPP SET": "investment opportunity set",
-    "COMP PORT": "complete portfolio",
-    # CAPM & models
-    "CAPM": "Capital Asset Pricing Model",
-    "APT": "Arbitrage Pricing Theory",
-    "SIM": "single-index model",
-    "FF": "Fama-French",
-    "ALPHA": "alpha (abnormal return)",
-    "BETA": "beta (systematic risk measure)",
-    "IR": "information ratio",
-    # EMH
-    "EMH": "Efficient Market Hypothesis",
-    "WF": "weak-form EMH",
-    "SSF": "semi-strong form EMH",
-    "SF": "strong-form EMH",
-    "TA": "technical analysis",
-    "FA": "fundamental analysis",
-    "RW": "random walk",
-    # Bonds
-    "YTM": "yield to maturity",
-    "YTC": "yield to call",
-    "CY": "current yield",
-    "DUR": "duration",
-    "MDUR": "modified duration",
-    "CONV": "convexity",
-    "TIPS": "Treasury Inflation Protected Securities",
-    "ZCB": "zero-coupon bond",
-    "CDS": "credit default swap",
-    "LPT": "liquidity preference theory",
-    "IMM": "immunization",
-    "CF MATCH": "cash flow matching",
-    "SINK": "sinking fund",
-    # Corporate finance
-    "NPV": "net present value",
-    "IRR": "internal rate of return",
-    "WACC": "weighted average cost of capital",
-    "DCF": "discounted cash flow",
-    "TVM": "time value of money",
-    "ROIC": "return on invested capital",
-    "ROE": "return on equity",
-    "ROA": "return on assets",
-    "COD": "cost of debt",
-    "COE": "cost of equity",
-    "FCFF": "free cash flow to the firm",
-    "CAPEX": "capital expenditure",
-    "MM": "maintenance margin requirement",
-    "PECKING": "pecking order theory",
-    "TRADEOFF": "static trade-off theory",
-    # Equity exam additions (FIN 30103 Module 3)
-    "DDM": "dividend discount model",
-    "MDDM": "multi-stage dividend discount model",
-    "JPE": "justified P/E ratio",
-    "PE": "price-to-earnings ratio",
-    "PB": "price-to-book ratio",
-    "PS": "price-to-sales ratio",
-    "EV": "enterprise value",
-    "EBIT": "earnings before interest and taxes",
-    "EBITDA": "earnings before interest taxes depreciation and amortization",
-    "DOL": "degree of operating leverage",
-    "HHI": "Herfindahl-Hirschman Index",
-    "ADR": "American Depository Receipt",
-    "GDR": "Global Depository Receipt",
-    "DRP": "depository receipt",
-    "ETF": "exchange-traded fund",
-    "IPO": "initial public offering",
-    "IM": "initial margin requirement",
-    "LR": "leverage ratio",
-    "GTC": "good-til-cancelled order",
-    "IOC": "immediate-or-cancel order",
-    "FOK": "fill-or-kill order",
-    "BV": "book value of equity",
-    "PREF": "preferred stock",
-    "STAT": "statutory voting",
-    "CUM": "cumulative voting",
-    "PRI": "primary market",
-    "SECM": "secondary market",
-    "PW": "price-weighted index",
-    "VW": "value-weighted (market-cap) index",
-    "EW": "equal-weighted index",
-    "TR": "total return",
-    "PR": "price return",
-    # Financial ratios
-    "CR": "current ratio",
-    "QR": "quick ratio",
-    "DE": "debt-to-equity ratio",
-    "ICR": "interest coverage ratio",
-    "GPM": "gross profit margin",
-    "OPM": "operating profit margin",
-    "NPM": "net profit margin",
-    "DOH": "days of inventory on hand",
-    "DSO": "days sales outstanding",
-    "CCC": "cash conversion cycle",
-    "SGR": "sustainable growth rate",
-    "DUPONT": "DuPont decomposition",
-    # Governance & ESG
-    "ESG": "environmental social and governance",
-    "PA": "principal-agent relationship",
-    "CG": "corporate governance",
-    "P5F": "Porter's Five Forces",
-    # Business models
-    "VP": "value proposition",
-    "VC": "value chain",
-    "NE": "network effects",
-    "FREQ": "freemium model",
-    "SUB": "subscription model",
-}
-
-def expand_abbreviations(text: str) -> str:
-    """Expand known abbreviations in the query before sending to Claude."""
-    # Sort by length descending so longer matches take priority
-    for abbr in sorted(ABBREVIATIONS.keys(), key=len, reverse=True):
-        # Word-boundary match (case insensitive)
-        pattern = r'\b' + re.escape(abbr) + r'\b'
-        text = re.sub(pattern, ABBREVIATIONS[abbr], text, flags=re.IGNORECASE)
-    return text
 
 ASCII_REPLACEMENTS = {
     "\u2014": "-",
@@ -211,12 +57,20 @@ def sanitize(text: str) -> str:
         text = text.replace(char, replacement)
     return text.encode("ascii", errors="replace").decode("ascii").strip()
 
+def format_reply(model_text: str) -> str:
+    """Build the line sent to the calculator: ZachGPT intro + sanitized answer,
+    capped at MAX_RESPONSE. If the model wrote the intro anyway, drop its copy."""
+    answer = sanitize(model_text)
+    intro = REPLY_PREFIX.strip().lower()
+    if answer.lower().startswith(intro):
+        answer = answer[len(intro):].lstrip()
+    return (REPLY_PREFIX + answer).rstrip()[:MAX_RESPONSE]
+
 def ask_claude(client: anthropic.Anthropic, query: str, system: list[dict]) -> str:
-    """Send query to Claude and return sanitized, truncated response.
+    """Send the question to Claude and return the ZachGPT reply line
+    (intro + sanitized answer, truncated to MAX_RESPONSE).
 
     Uses claude-opus-4-7 with adaptive thinking and effort=high.
-    The `system` list is the cached two-block prompt — pass the same list
-    to every call to keep cache hits warm.
     """
     try:
         msg = client.messages.create(
@@ -233,7 +87,7 @@ def ask_claude(client: anthropic.Anthropic, query: str, system: list[dict]) -> s
             (b.text for b in msg.content if b.type == "text"),
             "",
         )
-        text = sanitize(text)
+        text = format_reply(text)
         usage = msg.usage
         print(
             f"[USE] in={usage.input_tokens} "
@@ -241,7 +95,7 @@ def ask_claude(client: anthropic.Anthropic, query: str, system: list[dict]) -> s
             f"cache_write={usage.cache_creation_input_tokens} "
             f"out={usage.output_tokens}"
         )
-        return text[:MAX_RESPONSE]
+        return text
     except anthropic.APIError as e:
         return f"API Error: {str(e)[:80]}"
     except Exception as e:
@@ -256,12 +110,9 @@ def main():
 
     client = anthropic.Anthropic(api_key=api_key)
     system = build_system()
-    pack_chars = sum(len(b["text"]) for b in system)
 
-    print(f"TI-84 AI Bridge v5.0 (Equities) on {PORT}")
-    print(f"Max response: {MAX_RESPONSE} chars")
-    print(f"Abbreviations loaded: {len(ABBREVIATIONS)}")
-    print(f"SYSTEM loaded: {len(system)} blocks, {pack_chars:,} chars total")
+    print(f"TI-84 AI Bridge v5.1 (ZachGPT, general use) on {PORT}")
+    print(f"Max response: {MAX_RESPONSE} chars (intro takes {len(REPLY_PREFIX)})")
     print("Waiting for calculator connection...")
     print("Press Ctrl+C to quit.\n")
 
@@ -280,10 +131,7 @@ def main():
                 if not line:
                     continue
                 print(f"[R] {len(line)} chars")
-                expanded = expand_abbreviations(line)
-                if expanded != line:
-                    print(f"[E] {len(expanded)} chars")
-                response = ask_claude(client, expanded, system)
+                response = ask_claude(client, line, system)
                 print(f"[RES] {len(response)} chars")
                 ser.write((response + "\n").encode("ascii"))
         except serial.SerialException:

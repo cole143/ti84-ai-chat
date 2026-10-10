@@ -1,5 +1,6 @@
-"""Manual smoke test: send two questions through the bridge's ask_claude
-and verify the second one shows a cache hit. Does NOT require the calculator.
+"""Manual smoke test: send two questions through the bridge's ask_claude and
+eyeball the ZachGPT replies (intro + answer, <= 500 ASCII chars). Does NOT
+require the calculator.
 
 Run: python -m host.tests.smoke_bridge
 """
@@ -24,20 +25,20 @@ def main() -> None:
     client = anthropic.Anthropic(api_key=api_key)
     system = build_system()
 
-    q1 = "MC: An investor purchases stock at $26 with IM=50% and MM=25%. Margin call price is closest to: A) 15.25 B) 19.45 C) 17.33"
-    q2 = "TF: The duration of a zero-coupon bond is equal to its maturity."
+    q1 = "WHATS THE CAPITAL OF AUSTRALIA"
+    q2 = "HOW DO I BOIL AN EGG"
 
-    print("\n--- Q1 (expect cache write) ---")
+    print("\n--- Q1 ---")
     print(f"Q: {q1}")
     a1 = ask_claude(client, q1, system)
     print(f"A: {a1}")
 
-    print("\n--- Q2 (expect cache read) ---")
+    print("\n--- Q2 ---")
     print(f"Q: {q2}")
     a2 = ask_claude(client, q2, system)
     print(f"A: {a2}")
 
-    print("\nIf [USE] for Q2 shows cache_read > 0, caching is working.")
+    print(f"\nBoth replies must start with the intro and be <= 500 chars: {len(a1)}, {len(a2)}")
 
 
 if __name__ == "__main__":
